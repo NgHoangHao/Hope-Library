@@ -1,0 +1,61 @@
+# Render Blueprint cho Hope Library Backend (NestJS)
+# Lưu ý: Nếu deploy từ monorepo (chứa cả hope-library và hopelib),
+# hãy cấu hình Root Directory trên Render = hope-library (hoặc đặt file này ở root repo và thêm rootDir: hope-library).
+services:
+  - type: web
+    name: hope-library-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: ENABLE_SWAGGER
+        value: "true"
+      - key: CORS_ORIGINS
+        sync: false
+      - key: COOKIE_SAME_SITE
+        value: none
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: LibraryDB
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: MAIL_FROM_NAME
+        value: Hope Library
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_ACCESS_EXPIRATION
+        value: 15m
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: JWT_REFRESH_EXPIRATION
+        value: 7d
+      - key: OTP_EXPIRATION_MINUTES
+        value: "5"
+      - key: PASSWORD_MIN_LENGTH
+        value: "8"
+      - key: RESERVATION_EXPIRATION_HOURS
+        value: "48"
+      - key: OVERDUE_FINE_PER_DAY
+        value: "20000"
+      - key: MAX_BORROW_BOOKS
+        value: "3"
+      - key: OVERDUE_REMINDER_BEFORE_DAYS
+        value: "1"

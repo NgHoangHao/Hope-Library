@@ -134,6 +134,38 @@ export class AuthController {
     );
   }
 
+  private getRefreshCookieOptions() {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const rawSameSite = process.env.COOKIE_SAME_SITE?.trim().toLowerCase();
+    const sameSite: 'lax' | 'strict' | 'none' =
+      rawSameSite === 'lax' || rawSameSite === 'strict' || rawSameSite === 'none'
+        ? rawSameSite
+        : isProduction
+          ? 'none'
+          : 'lax';
+
+    const rawSecure = process.env.COOKIE_SECURE?.trim().toLowerCase();
+    // Trình duyệt bắt buộc Secure=true khi SameSite=None
+    const secure =
+      sameSite === 'none'
+        ? true
+        : rawSecure === 'true'
+          ? true
+          : rawSecure === 'false'
+            ? false
+            : isProduction;
+
+    const domain = process.env.COOKIE_DOMAIN?.trim() || undefined;
+
+    return {
+      httpOnly: true,
+      secure,
+      sameSite,
+      path: '/',
+      ...(domain ? { domain } : {}),
+    };
+  }
+
   /**
    * POST /auth/login
    * Đăng nhập với username và password.
@@ -154,10 +186,7 @@ export class AuthController {
     const { accessToken, refreshToken, user } = await this.authService.login(loginDto);
 
     res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
+      ...this.getRefreshCookieOptions(),
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 ngày
     });
 
@@ -207,11 +236,7 @@ export class AuthController {
   async logout(
     @Res({ passthrough: true }) res: Response,
   ): Promise<ApiResponse<null>> {
-    res.clearCookie('refreshToken', {
-      httpOnly: true,
-      sameSite: 'lax',
-      path: '/',
-    });
+    res.clearCookie('refreshToken', this.getRefreshCookieOptions());
     return ApiResponse.success(null, 'Đăng xuất thành công');
   }
 

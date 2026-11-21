@@ -1,19 +1,19 @@
-import { Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Prop } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 
 export abstract class BaseEntity {
-  @Column({ type: 'nvarchar', length: 100, nullable: true })
+  @Prop({ type: String, default: null })
   createdBy?: string | null;
 
   @AutoMap(() => Date)
-  @CreateDateColumn({ type: 'datetime2' })
+  @Prop({ type: Date })
   createdAt: Date;
 
-  @Column({ type: 'nvarchar', length: 100, nullable: true })
+  @Prop({ type: String, default: null })
   updatedBy?: string | null;
 
   @AutoMap(() => Date)
-  @UpdateDateColumn({ type: 'datetime2', nullable: true })
+  @Prop({ type: Date, default: null })
   updatedAt?: Date | null;
 
   // Getter/setter hỗ trợ tên gọi updateBy

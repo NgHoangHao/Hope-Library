@@ -1,10 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule, getConnectionToken } from '@nestjs/mongoose';
 import { NestFactory } from '@nestjs/core';
-import { DataSource } from 'typeorm';
+import type { Connection, Model } from 'mongoose';
 
-import { entities } from '../model/index.js';
+import { mongooseModels } from '../model/index.js';
+import { getMongoConnectionOptions } from './mongo.config.js';
 import {
   SystemConfig,
   SystemConfigValueType,
@@ -25,21 +27,21 @@ export const OVERDUE_REMINDER_CONFIG: SystemConfigSeedItem = {
 };
 
 /**
- * Hàm seed bản ghi cấu hình OVERDUE_REMINDER_BEFORE_DAYS vào bảng system_configs.
+ * Hàm seed bản ghi cấu hình OVERDUE_REMINDER_BEFORE_DAYS vào collection system_configs.
  * Idempotent: chỉ thêm mới nếu key chưa tồn tại, không ghi đè giá trị quản trị viên đã chỉnh sửa.
  */
 export async function seedOverdueReminderConfig(
-  dataSource: DataSource,
+  connection: Connection,
 ): Promise<void> {
-  const configRepo = dataSource.getRepository(SystemConfig);
+  const configModel = connection.model<SystemConfig>(SystemConfig.name) as Model<SystemConfig>;
 
   console.log(
     '--- Bắt đầu khởi tạo cấu hình nhắc nhở quá hạn (OVERDUE_REMINDER_BEFORE_DAYS) ---',
   );
 
-  const existing = await configRepo.findOneBy({
-    key: OVERDUE_REMINDER_CONFIG.key,
-  });
+  const existing = await configModel
+    .findOne({ key: OVERDUE_REMINDER_CONFIG.key })
+    .exec();
 
   if (existing) {
     console.log(
@@ -48,7 +50,8 @@ export async function seedOverdueReminderConfig(
     return;
   }
 
-  const entity = configRepo.create({
+  await configModel.create({
+    id: randomUUID(),
     key: OVERDUE_REMINDER_CONFIG.key,
     value: OVERDUE_REMINDER_CONFIG.value,
     valueType: OVERDUE_REMINDER_CONFIG.valueType,
@@ -57,7 +60,6 @@ export async function seedOverdueReminderConfig(
     isPublic: OVERDUE_REMINDER_CONFIG.isPublic,
   });
 
-  await configRepo.save(entity);
   console.log(
     `[OK] Đã tạo cấu hình "${OVERDUE_REMINDER_CONFIG.key}" = ${OVERDUE_REMINDER_CONFIG.value} (${OVERDUE_REMINDER_CONFIG.valueType})`,
   );
@@ -70,24 +72,11 @@ export async function seedOverdueReminderConfig(
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    TypeOrmModule.forRootAsync({
+    MongooseModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'mssql' as const,
-        host: config.get<string>('DB_HOST'),
-        port: Number(config.get<string>('DB_PORT', '1433')),
-        username: config.get<string>('DB_USERNAME'),
-        password: config.get<string>('DB_PASSWORD'),
-        database: config.get<string>('DB_DATABASE'),
-        entities,
-        autoLoadEntities: true,
-        synchronize: false,
-        options: {
-          encrypt: false,
-          trustServerCertificate: true,
-        },
-      }),
+      useFactory: (config: ConfigService) => getMongoConnectionOptions(config),
     }),
+    MongooseModule.forFeature(mongooseModels),
   ],
 })
 class StandaloneOverdueReminderConfigSeedModule {}
@@ -98,8 +87,8 @@ async function bootstrap(): Promise<void> {
   );
 
   try {
-    const dataSource = app.get(DataSource);
-    await seedOverdueReminderConfig(dataSource);
+    const connection = app.get<Connection>(getConnectionToken());
+    await seedOverdueReminderConfig(connection);
     console.log(
       'Script overdue-reminder-config seeder hoàn thành thành công!',
     );

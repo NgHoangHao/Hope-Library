@@ -1,33 +1,52 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Reflector } from '@nestjs/core';
 import type { ExecutionContext } from '@nestjs/common';
-import type { DataSource } from 'typeorm';
+import type { Model } from 'mongoose';
 import { PermissionsGuard } from './permissions.guard.js';
 import { AppException } from '../common/index.js';
 import { TokenHelper } from '../utils/token.helper.js';
+import type { UserRole } from '../model/user-role/user-role.entity.js';
+import type { Role } from '../model/role/role.entity.js';
+import type { RolePermission } from '../model/role-permission/role-permission.entity.js';
+import type { Permission } from '../model/permission/permission.entity.js';
 
 describe('PermissionsGuard', () => {
   let guard: PermissionsGuard;
   let reflector: Reflector;
-  let dataSource: any;
-  let mockQueryBuilder: any;
+  let userRoleModel: any;
+  let roleModel: any;
+  let rolePermissionModel: any;
+  let permissionModel: any;
+
+  const makeLeanExec = (value: any) => ({
+    lean: vi.fn().mockReturnValue({
+      exec: vi.fn().mockResolvedValue(value),
+    }),
+  });
 
   beforeEach(() => {
     reflector = new Reflector();
 
-    mockQueryBuilder = {
-      select: vi.fn().mockReturnThis(),
-      from: vi.fn().mockReturnThis(),
-      innerJoin: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
-      getRawMany: vi.fn().mockResolvedValue([]),
+    userRoleModel = {
+      find: vi.fn(() => makeLeanExec([])),
+    };
+    roleModel = {
+      find: vi.fn(() => makeLeanExec([])),
+    };
+    rolePermissionModel = {
+      find: vi.fn(() => makeLeanExec([])),
+    };
+    permissionModel = {
+      find: vi.fn(() => makeLeanExec([])),
     };
 
-    dataSource = {
-      createQueryBuilder: vi.fn(() => mockQueryBuilder),
-    };
-
-    guard = new PermissionsGuard(reflector, dataSource as unknown as DataSource);
+    guard = new PermissionsGuard(
+      reflector,
+      userRoleModel as unknown as Model<UserRole>,
+      roleModel as unknown as Model<Role>,
+      rolePermissionModel as unknown as Model<RolePermission>,
+      permissionModel as unknown as Model<Permission>,
+    );
   });
 
   const createMockContext = (
@@ -68,9 +87,9 @@ describe('PermissionsGuard', () => {
       roles: ['ADMIN'],
     });
 
-    mockQueryBuilder.getRawMany
-      .mockResolvedValueOnce([{ roleId: 'role-admin-id' }])
-      .mockResolvedValueOnce([{ code: 'BOOK_CREATE' }]);
+    userRoleModel.find.mockReturnValueOnce(makeLeanExec([{ roleId: 'role-admin-id' }]));
+    rolePermissionModel.find.mockReturnValueOnce(makeLeanExec([{ permissionId: 'perm-1' }]));
+    permissionModel.find.mockReturnValueOnce(makeLeanExec([{ code: 'BOOK_CREATE' }]));
 
     const context = createMockContext({ headers: { authorization: 'Bearer mock-token' } });
     await expect(guard.canActivate(context)).rejects.toThrow(AppException);
@@ -85,9 +104,9 @@ describe('PermissionsGuard', () => {
       roles: ['BORROWER'],
     });
 
-    mockQueryBuilder.getRawMany
-      .mockResolvedValueOnce([{ roleId: 'role-borrower-id' }])
-      .mockResolvedValueOnce([{ code: 'BOOK_READ' }]);
+    userRoleModel.find.mockReturnValueOnce(makeLeanExec([{ roleId: 'role-borrower-id' }]));
+    rolePermissionModel.find.mockReturnValueOnce(makeLeanExec([{ permissionId: 'perm-read' }]));
+    permissionModel.find.mockReturnValueOnce(makeLeanExec([{ code: 'BOOK_READ' }]));
 
     const context = createMockContext({ headers: { authorization: 'Bearer user-token' } });
     const result = await guard.canActivate(context);
@@ -104,9 +123,9 @@ describe('PermissionsGuard', () => {
       roles: ['BORROWER'],
     });
 
-    mockQueryBuilder.getRawMany
-      .mockResolvedValueOnce([{ roleId: 'role-borrower-id' }])
-      .mockResolvedValueOnce([{ code: 'BOOK_READ' }]);
+    userRoleModel.find.mockReturnValueOnce(makeLeanExec([{ roleId: 'role-borrower-id' }]));
+    rolePermissionModel.find.mockReturnValueOnce(makeLeanExec([{ permissionId: 'perm-read' }]));
+    permissionModel.find.mockReturnValueOnce(makeLeanExec([{ code: 'BOOK_READ' }]));
 
     const context = createMockContext({ headers: { authorization: 'Bearer user-token' } });
 

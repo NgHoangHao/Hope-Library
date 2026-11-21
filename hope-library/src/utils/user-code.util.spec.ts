@@ -5,7 +5,6 @@ import {
   isValidUserCode,
   generateNextAvailableUserCode,
 } from './user-code.util.js';
-import { User } from '../model/user/user.entity.js';
 
 describe('user-code.util', () => {
   describe('getNextPrefix', () => {
@@ -82,77 +81,53 @@ describe('user-code.util', () => {
   });
 
   describe('generateNextAvailableUserCode', () => {
-    it('sinh mã A-0001 khi bảng trống', async () => {
-      const mockQb = {
-        where: vi.fn().mockReturnThis(),
-        orderBy: vi.fn().mockReturnThis(),
-        addOrderBy: vi.fn().mockReturnThis(),
-        getOne: vi.fn().mockResolvedValue(null),
-      };
-      const mockRepo: any = {
-        createQueryBuilder: vi.fn().mockReturnValue(mockQb),
-        exists: vi.fn().mockResolvedValue(false),
+    const makeAgg = (result: any[]) => ({
+      session: vi.fn().mockReturnThis(),
+      exec: vi.fn().mockResolvedValue(result),
+    });
+
+    it('sinh mã A-0001 khi collection trống', async () => {
+      const mockModel: any = {
+        aggregate: vi.fn(() => makeAgg([])),
+        exists: vi.fn().mockResolvedValue(null),
       };
 
-      const code = await generateNextAvailableUserCode(mockRepo);
+      const code = await generateNextAvailableUserCode(mockModel);
       expect(code).toBe('A-0001');
     });
 
-    it('sinh mã kế tiếp từ mã lớn nhất trong CSDL', async () => {
-      const mockQb = {
-        where: vi.fn().mockReturnThis(),
-        orderBy: vi.fn().mockReturnThis(),
-        addOrderBy: vi.fn().mockReturnThis(),
-        getOne: vi.fn().mockResolvedValue({ code: 'A-0005' }),
-      };
-      const mockRepo: any = {
-        createQueryBuilder: vi.fn().mockReturnValue(mockQb),
-        exists: vi.fn().mockResolvedValue(false),
+    it('sinh mã kế tiếp từ mã lớn nhất trong MongoDB', async () => {
+      const mockModel: any = {
+        aggregate: vi.fn(() => makeAgg([{ code: 'A-0005' }])),
+        exists: vi.fn().mockResolvedValue(null),
       };
 
-      const code = await generateNextAvailableUserCode(mockRepo);
+      const code = await generateNextAvailableUserCode(mockModel);
       expect(code).toBe('A-0006');
     });
 
     it('bỏ qua mã đã tồn tại nếu có xung đột (collision avoidance)', async () => {
-      const mockQb = {
-        where: vi.fn().mockReturnThis(),
-        orderBy: vi.fn().mockReturnThis(),
-        addOrderBy: vi.fn().mockReturnThis(),
-        getOne: vi.fn().mockResolvedValue({ code: 'A-0005' }),
-      };
-      const mockRepo: any = {
-        createQueryBuilder: vi.fn().mockReturnValue(mockQb),
-        // Giả sử A-0006 đã tồn tại, A-0007 còn trống
-        exists: vi.fn().mockImplementation(async ({ where }: any) => {
-          return where.code === 'A-0006';
-        }),
+      const mockModel: any = {
+        aggregate: vi.fn(() => makeAgg([{ code: 'A-0005' }])),
+        exists: vi.fn(async ({ code }: { code: string }) =>
+          code === 'A-0006' ? { _id: 'existing' } : null,
+        ),
       };
 
-      const code = await generateNextAvailableUserCode(mockRepo);
+      const code = await generateNextAvailableUserCode(mockModel);
       expect(code).toBe('A-0007');
     });
 
-    it('hỗ trợ EntityManager (trong transaction) thông qua getRepository(User)', async () => {
-      const mockQb = {
-        where: vi.fn().mockReturnThis(),
-        orderBy: vi.fn().mockReturnThis(),
-        addOrderBy: vi.fn().mockReturnThis(),
-        getOne: vi.fn().mockResolvedValue({ code: 'A-0001' }),
+    it('truyền ClientSession vào aggregate khi chạy trong transaction', async () => {
+      const aggObj = makeAgg([{ code: 'A-0001' }]);
+      const mockModel: any = {
+        aggregate: vi.fn(() => aggObj),
+        exists: vi.fn().mockResolvedValue(null),
       };
-      const mockRepo: any = {
-        createQueryBuilder: vi.fn().mockReturnValue(mockQb),
-        exists: vi.fn().mockResolvedValue(false),
-      };
-      const mockEntityManager: any = {
-        createQueryBuilder: vi.fn().mockImplementation(() => {
-          throw new Error('Should not call EntityManager.createQueryBuilder with 1 arg');
-        }),
-        getRepository: vi.fn().mockReturnValue(mockRepo),
-      };
+      const fakeSession: any = { id: 'session-1' };
 
-      const code = await generateNextAvailableUserCode(mockEntityManager);
-      expect(mockEntityManager.getRepository).toHaveBeenCalled();
+      const code = await generateNextAvailableUserCode(mockModel, fakeSession);
+      expect(aggObj.session).toHaveBeenCalledWith(fakeSession);
       expect(code).toBe('A-0002');
     });
   });

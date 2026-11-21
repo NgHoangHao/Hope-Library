@@ -1,66 +1,50 @@
-import {
-  Column,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  OneToMany,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
-import { RoleNavigation } from '../role-navigation/role-navigation.entity.js';
+import type { RoleNavigation } from '../role-navigation/role-navigation.entity.js';
 
-@Entity('navigations')
+@Schema({ collection: 'navigations', timestamps: true })
 export class Navigation extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 100, unique: true })
+  @Prop({ type: String, required: true, unique: true })
   code: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255 })
+  @Prop({ type: String, required: true })
   name: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255, nullable: true })
+  @Prop({ type: String, default: null })
   path?: string | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'uniqueidentifier', nullable: true })
+  @Prop({ type: String, default: null, index: true })
   parentId?: string | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 100, nullable: true })
+  @Prop({ type: String, default: null })
   icon?: string | null;
 
   @AutoMap(() => Number)
-  @Column({ type: 'int', default: 0 })
+  @Prop({ type: Number, default: 0 })
   sortOrder: number;
 
   @AutoMap(() => Boolean)
-  @Column({ type: 'bit', default: true })
+  @Prop({ type: Boolean, default: true })
   isVisible: boolean;
 
   @AutoMap(() => Boolean)
-  @Column({ type: 'bit', default: true })
+  @Prop({ type: Boolean, default: true })
   isActive: boolean;
 
-  @ManyToOne(() => Navigation, (nav) => nav.children, {
-    nullable: true,
-    onDelete: 'NO ACTION',
-  })
-  @JoinColumn({ name: 'parentId' })
-  parent?: Relation<Navigation> | null;
-
-  @OneToMany(() => Navigation, (nav) => nav.parent)
-  children?: Relation<Navigation>[];
-
-  @OneToMany(() => RoleNavigation, (rn) => rn.navigation)
-  roleNavigations?: Relation<RoleNavigation>[];
+  parent?: Navigation | null;
+  children?: Navigation[];
+  roleNavigations?: RoleNavigation[];
 
   constructor(partial?: Partial<Navigation>) {
     super(partial);
@@ -72,3 +56,5 @@ export class Navigation extends BaseEntity {
     }
   }
 }
+
+export const NavigationSchema = SchemaFactory.createForClass(Navigation);

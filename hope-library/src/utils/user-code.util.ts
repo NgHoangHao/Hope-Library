@@ -1,4 +1,4 @@
-import { EntityManager, Repository } from 'typeorm';
+import type { ClientSession, Model } from 'mongoose';
 import { User } from '../model/user/user.entity.js';
 
 /**
@@ -62,38 +62,35 @@ export function isValidUserCode(code: string): boolean {
 }
 
 /**
- * Lấy mã user code kế tiếp từ CSDL hoặc EntityManager, đảm bảo không bị trùng lặp (unique)
+ * Lấy mã user code kế tiếp từ MongoDB (User model), đảm bảo không bị trùng lặp (unique)
  */
 export async function generateNextAvailableUserCode(
-  target: Repository<User> | EntityManager,
+  userModel: Model<User>,
+  session?: ClientSession,
 ): Promise<string> {
-  // Nếu target là EntityManager (ví dụ trong transaction), lấy Repository<User> từ manager
-  const repo: Repository<User> =
-    'getRepository' in target && typeof (target as EntityManager).getRepository === 'function'
-      ? (target as EntityManager).getRepository(User)
-      : (target as Repository<User>);
-
   let latestCode: string | null = null;
 
   try {
-    const qb = repo.createQueryBuilder('user');
-
-    const latest = await qb
-      .where('user.code IS NOT NULL')
-      .orderBy('LEN(user.code)', 'DESC')
-      .addOrderBy('user.code', 'DESC')
-      .getOne();
-
+    const agg = userModel.aggregate<{ code?: string }>([
+      { $match: { code: { $type: 'string', $ne: '' } } },
+      { $addFields: { codeLen: { $strLenCP: '$code' } } },
+      { $sort: { codeLen: -1, code: -1 } },
+      { $limit: 1 },
+      { $project: { code: 1 } },
+    ]);
+    if (session) {
+      agg.session(session);
+    }
+    const [latest] = await agg.exec();
     latestCode = latest?.code ?? null;
   } catch {
     try {
-      if (typeof repo.findOne === 'function') {
-        const latest = await repo.findOne({
-          where: {},
-          order: { createdAt: 'DESC' },
-        });
-        latestCode = latest?.code ?? null;
+      const query = userModel.findOne({}).sort({ createdAt: -1 }).lean();
+      if (session) {
+        query.session(session);
       }
+      const latest = await query.exec();
+      latestCode = (latest as { code?: string } | null)?.code ?? null;
     } catch {
       latestCode = null;
     }
@@ -101,20 +98,25 @@ export async function generateNextAvailableUserCode(
 
   let candidate = computeNextUserCode(latestCode);
 
-  // Safeguard: Kiểm tra candidate đã tồn tại hay chưa để tránh collision
   const checkExists = async (codeToCheck: string): Promise<boolean> => {
     try {
-      if (typeof repo.exists === 'function') {
-        return await repo.exists({ where: { code: codeToCheck } });
-      }
-      if (typeof repo.findOne === 'function') {
-        const found = await repo.findOne({ where: { code: codeToCheck } });
+      if (typeof userModel.exists === 'function') {
+        const query = userModel.exists({ code: codeToCheck });
+        if (session && typeof query?.session === 'function') {
+          query.session(session);
+        }
+        const found = await query;
         return Boolean(found);
       }
+      const query = userModel.findOne({ code: codeToCheck }).lean();
+      if (session && typeof query?.session === 'function') {
+        query.session(session);
+      }
+      const found = await query.exec();
+      return Boolean(found);
     } catch {
       return false;
     }
-    return false;
   };
 
   while (await checkExists(candidate)) {

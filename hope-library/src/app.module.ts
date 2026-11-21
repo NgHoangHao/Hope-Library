@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
-import { entities } from './model/index.js';
+import { getMongoConnectionOptions } from './database/mongo.config.js';
 
 import { AutomapperModule } from '@automapper/nestjs';
 import { classes } from '@automapper/classes';
@@ -33,6 +33,10 @@ import { SystemConfigModule } from './system-config.module.js';
     AutomapperModule.forRoot({
       strategyInitializer: classes(),
     }),
+    MongooseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => getMongoConnectionOptions(config),
+    }),
     RoleModule,
     BookModule,
     AuthorModule,
@@ -46,25 +50,6 @@ import { SystemConfigModule } from './system-config.module.js';
     UserModule,
     DashboardModule,
     SystemConfigModule,
-
-    TypeOrmModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'mssql' as const,
-        host: config.get<string>('DB_HOST'),
-        port: Number(config.get<string>('DB_PORT', '1433')),
-        username: config.get<string>('DB_USERNAME'),
-        password: config.get<string>('DB_PASSWORD'),
-        database: config.get<string>('DB_DATABASE'),
-        entities,
-        autoLoadEntities: true,
-        synchronize: config.get<string>('DB_SYNCHRONIZE') !== 'false',
-        options: {
-          encrypt: false,
-          trustServerCertificate: true,
-        },
-      }),
-    }),
   ],
   controllers: [AppController],
   providers: [AppService],

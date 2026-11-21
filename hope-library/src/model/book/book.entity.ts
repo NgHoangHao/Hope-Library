@@ -1,16 +1,9 @@
-import {
-  Column,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  OneToMany,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
-import { Author } from '../author/author.entity.js';
-import { Category } from '../category/category.entity.js';
+import type { Author } from '../author/author.entity.js';
+import type { Category } from '../category/category.entity.js';
 import { BookCopy } from '../book-copy/book-copy.entity.js';
 
 export enum BookStatus {
@@ -19,81 +12,65 @@ export enum BookStatus {
   ARCHIVED = 'ARCHIVED',
 }
 
-@Entity('books')
+@Schema({ collection: 'books', timestamps: true })
 export class Book extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255 })
+  @Prop({ type: String, required: true })
   title: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 50, nullable: true })
+  @Prop({ type: String, default: null, index: true })
   isbn?: string | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'uniqueidentifier', nullable: true })
+  @Prop({ type: String, default: null, index: true })
   authorId?: string | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'uniqueidentifier', nullable: true })
+  @Prop({ type: String, default: null, index: true })
   categoryId?: string | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255, nullable: true })
+  @Prop({ type: String, default: null })
   publisher?: string | null;
 
   @AutoMap(() => Number)
-  @Column({ type: 'int', nullable: true })
+  @Prop({ type: Number, default: null })
   publicationYear?: number | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 50, nullable: true })
+  @Prop({ type: String, default: null })
   edition?: string | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 'max', nullable: true })
+  @Prop({ type: String, default: null })
   description?: string | null;
 
   @AutoMap(() => Number)
-  @Column({ type: 'int', default: 0 })
+  @Prop({ type: Number, default: 0 })
   totalCopies: number;
 
   @AutoMap(() => Number)
-  @Column({ type: 'int', default: 0 })
+  @Prop({ type: Number, default: 0 })
   availableCopies: number;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255, nullable: true })
+  @Prop({ type: String, default: null })
   bookUrl?: string | null;
 
   @AutoMap(() => String)
-  @Column({
-    type: 'nvarchar',
-    length: 20,
-    default: BookStatus.ACTIVE,
-  })
+  @Prop({ type: String, enum: BookStatus, default: BookStatus.ACTIVE })
   status: BookStatus;
 
-  @ManyToOne(() => Author, (author) => author.books, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
-  @JoinColumn({ name: 'authorId' })
-  author?: Relation<Author> | null;
-
-  @ManyToOne(() => Category, (category) => category.books, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
-  @JoinColumn({ name: 'categoryId' })
-  category?: Relation<Category> | null;
+  author?: Author | null;
+  category?: Category | null;
 
   @AutoMap(() => [BookCopy])
-  @OneToMany(() => BookCopy, (bookCopy) => bookCopy.book)
-  copies?: Relation<BookCopy>[];
+  copies?: BookCopy[];
 
   constructor(partial?: Partial<Book>) {
     super(partial);
@@ -105,3 +82,5 @@ export class Book extends BaseEntity {
     }
   }
 }
+
+export const BookSchema = SchemaFactory.createForClass(Book);

@@ -1,13 +1,5 @@
-import {
-  Column,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-  OneToMany,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
 import { User } from '../user/user.entity.js';
@@ -23,57 +15,48 @@ export enum LoanStatus {
   EXPIRED = 'EXPIRED',
 }
 
-@Entity('loans')
-@Index('IDX_loans_dueDate_status', ['dueDate', 'status'])
+@Schema({ collection: 'loans', timestamps: true })
 export class Loan extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'uniqueidentifier' })
+  @Prop({ type: String, required: true, index: true })
   userId: string;
 
   @AutoMap(() => Date)
-  @Column({ type: 'datetime2' })
+  @Prop({ type: Date, required: true })
   loanDate: Date;
 
   @AutoMap(() => Date)
-  @Column({ type: 'datetime2' })
+  @Prop({ type: Date, required: true })
   dueDate: Date;
 
   @AutoMap(() => Date)
-  @Column({ type: 'datetime2', nullable: true })
+  @Prop({ type: Date, default: null })
   returnDate?: Date | null;
 
   @AutoMap(() => Date)
-  @Column({ type: 'datetime2', nullable: true })
+  @Prop({ type: Date, default: null })
   pickupDeadline?: Date | null;
 
   @AutoMap(() => String)
-  @Column({
-    type: 'nvarchar',
-    length: 20,
-    default: LoanStatus.PENDING,
-  })
+  @Prop({ type: String, enum: LoanStatus, default: LoanStatus.PENDING })
   status: LoanStatus;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 1000, nullable: true })
+  @Prop({ type: String, default: null })
   notes?: string | null;
 
   @AutoMap(() => User)
-  @ManyToOne(() => User, (user) => user.loans, { onDelete: 'NO ACTION' })
-  @JoinColumn({ name: 'userId' })
-  user?: Relation<User>;
+  user?: User;
 
   @AutoMap(() => [LoanItem])
-  @OneToMany(() => LoanItem, (loanItem) => loanItem.loan)
-  loanItems?: Relation<LoanItem>[];
+  loanItems?: LoanItem[];
 
   @AutoMap(() => [Fine])
-  @OneToMany(() => Fine, (fine) => fine.loan)
-  fines?: Relation<Fine>[];
+  fines?: Fine[];
 
   constructor(partial?: Partial<Loan>) {
     super(partial);
@@ -83,3 +66,6 @@ export class Loan extends BaseEntity {
     }
   }
 }
+
+export const LoanSchema = SchemaFactory.createForClass(Loan);
+LoanSchema.index({ dueDate: 1, status: 1 });

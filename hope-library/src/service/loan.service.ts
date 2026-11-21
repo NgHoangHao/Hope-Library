@@ -1,6 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { In } from 'typeorm';
 import { LoanRepository } from '../repository/loan.repository.js';
 import { LoanMapper } from '../mapper/loan.mapper.js';
 import { Loan, LoanStatus } from '../model/loan/loan.entity.js';
@@ -499,7 +498,7 @@ export class LoanService {
           const allCopies =
             allCopyIds.length > 0
               ? await manager.find(BookCopy, {
-                where: { id: In(allCopyIds) },
+                where: { id: { $in: allCopyIds } },
                 relations: { book: true },
               })
               : [];

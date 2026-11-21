@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule, getConnectionToken } from '@nestjs/mongoose';
 import { NestFactory } from '@nestjs/core';
-import { DataSource } from 'typeorm';
+import type { Connection } from 'mongoose';
 
-import { entities } from '../model/index.js';
+import { mongooseModels } from '../model/index.js';
+import { getMongoConnectionOptions } from './mongo.config.js';
 import { seedNavigation } from './navigation.seeder.js';
 import { seedPermission } from './permission.seeder.js';
 import { seedSystemConfig } from './system-config.seeder.js';
@@ -14,24 +15,11 @@ import { seedSystemConfig } from './system-config.seeder.js';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    TypeOrmModule.forRootAsync({
+    MongooseModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'mssql' as const,
-        host: config.get<string>('DB_HOST'),
-        port: Number(config.get<string>('DB_PORT', '1433')),
-        username: config.get<string>('DB_USERNAME'),
-        password: config.get<string>('DB_PASSWORD'),
-        database: config.get<string>('DB_DATABASE'),
-        entities,
-        autoLoadEntities: true,
-        synchronize: false,
-        options: {
-          encrypt: false,
-          trustServerCertificate: true,
-        },
-      }),
+      useFactory: (config: ConfigService) => getMongoConnectionOptions(config),
     }),
+    MongooseModule.forFeature(mongooseModels),
   ],
 })
 class SeedDatabaseModule {}
@@ -40,11 +28,11 @@ async function bootstrap() {
   const app = await NestFactory.createApplicationContext(SeedDatabaseModule);
 
   try {
-    const dataSource = app.get(DataSource);
+    const connection = app.get<Connection>(getConnectionToken());
 
-    await seedNavigation(dataSource);
-    await seedPermission(dataSource);
-    await seedSystemConfig(dataSource);
+    await seedPermission(connection);
+    await seedNavigation(connection);
+    await seedSystemConfig(connection);
 
     console.log('Seeder executed successfully!');
   } catch (error) {

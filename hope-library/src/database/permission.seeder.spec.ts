@@ -1,54 +1,51 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { DataSource } from 'typeorm';
+import type { Connection } from 'mongoose';
 import { seedPermission, API_PERMISSIONS } from './permission.seeder.js';
 import { Permission } from '../model/permission/permission.entity.js';
 import { Role } from '../model/role/role.entity.js';
 import { RolePermission } from '../model/role-permission/role-permission.entity.js';
 
 describe('PermissionSeeder', () => {
-  let mockPermRepo: any;
-  let mockRoleRepo: any;
-  let mockRolePermRepo: any;
-  let mockDataSource: Partial<DataSource>;
+  let mockPermModel: any;
+  let mockRoleModel: any;
+  let mockRolePermModel: any;
+  let mockConnection: Partial<Connection>;
+
+  const makeExec = (value: any) => ({
+    exec: vi.fn().mockResolvedValue(value),
+  });
 
   beforeEach(() => {
-    mockPermRepo = {
-      findOneBy: vi.fn(),
-      find: vi.fn().mockResolvedValue([]),
-      create: vi.fn((dto) => dto),
-      save: vi.fn((entity) => Promise.resolve({ id: 'perm-id', ...entity })),
+    mockPermModel = {
+      findOne: vi.fn(() => makeExec(null)),
+      find: vi.fn(() => makeExec([])),
+      create: vi.fn((dto) => Promise.resolve({ id: 'perm-id', ...dto })),
     };
 
-    mockRoleRepo = {
-      findOneBy: vi.fn(),
-      create: vi.fn((dto) => dto),
-      save: vi.fn((entity) => Promise.resolve({ id: 'role-id', ...entity })),
+    mockRoleModel = {
+      findOne: vi.fn(() => makeExec(null)),
+      create: vi.fn((dto) => Promise.resolve({ id: 'role-id', ...dto })),
     };
 
-    mockRolePermRepo = {
-      findOneBy: vi.fn(),
-      create: vi.fn((dto) => dto),
-      save: vi.fn((entity) => Promise.resolve(entity)),
+    mockRolePermModel = {
+      findOne: vi.fn(() => makeExec(null)),
+      create: vi.fn((dto) => Promise.resolve(dto)),
     };
 
-    mockDataSource = {
-      getRepository: vi.fn((target: any) => {
-        if (target === Permission) return mockPermRepo;
-        if (target === Role) return mockRoleRepo;
-        if (target === RolePermission) return mockRolePermRepo;
-        throw new Error('Unknown repository target');
-      }),
+    mockConnection = {
+      model: vi.fn((name: string) => {
+        if (name === Permission.name) return mockPermModel;
+        if (name === Role.name) return mockRoleModel;
+        if (name === RolePermission.name) return mockRolePermModel;
+        throw new Error(`Unknown model name: ${name}`);
+      }) as any,
     };
   });
 
   it('khởi tạo thành công đầy đủ danh sách API_PERMISSIONS', async () => {
-    mockPermRepo.findOneBy.mockResolvedValue(null);
-    mockRoleRepo.findOneBy.mockResolvedValue(null);
+    await seedPermission(mockConnection as Connection);
 
-    await seedPermission(mockDataSource as DataSource);
-
-    expect(mockPermRepo.create).toHaveBeenCalledTimes(API_PERMISSIONS.length);
-    expect(mockPermRepo.save).toHaveBeenCalledTimes(API_PERMISSIONS.length);
+    expect(mockPermModel.create).toHaveBeenCalledTimes(API_PERMISSIONS.length);
   });
 
   it('cập nhật description nếu quyền hạn đã tồn tại nhưng có description mới', async () => {
@@ -56,44 +53,46 @@ describe('PermissionSeeder', () => {
       id: 'existing-id',
       code: API_PERMISSIONS[0].code,
       description: 'Old Description',
+      save: vi.fn().mockResolvedValue(undefined),
     };
 
-    mockPermRepo.findOneBy.mockImplementation(({ code }: { code: string }) => {
-      if (code === API_PERMISSIONS[0].code) return Promise.resolve(existing);
-      return Promise.resolve(null);
+    mockPermModel.findOne.mockImplementation(({ code }: { code: string }) => {
+      if (code === API_PERMISSIONS[0].code) return makeExec(existing);
+      return makeExec(null);
     });
-    mockRoleRepo.findOneBy.mockResolvedValue(null);
 
-    await seedPermission(mockDataSource as DataSource);
+    await seedPermission(mockConnection as Connection);
 
     expect(existing.description).toBe(API_PERMISSIONS[0].description);
-    expect(mockPermRepo.save).toHaveBeenCalledWith(existing);
+    expect(existing.save).toHaveBeenCalledTimes(1);
   });
 
   it('tự động gán quyền hạn cho vai trò ADMIN', async () => {
     const adminRole = { id: 'admin-role-id', name: 'ADMIN' };
-    mockPermRepo.findOneBy.mockResolvedValue(null);
-    mockRoleRepo.findOneBy.mockImplementation(({ name }: { name: string }) => {
-      if (name === 'ADMIN') return Promise.resolve(adminRole);
-      return Promise.resolve(null);
+    mockRoleModel.findOne.mockImplementation(({ name }: { name: string }) => {
+      if (name === 'ADMIN') return makeExec(adminRole);
+      return makeExec(null);
     });
 
     const mockPermissions = [
       { id: 'perm-1', code: 'BOOK_READ' },
       { id: 'perm-2', code: 'BOOK_CREATE' },
     ];
-    mockPermRepo.find.mockResolvedValue(mockPermissions);
-    mockRolePermRepo.findOneBy.mockResolvedValue(null);
+    mockPermModel.find.mockReturnValue(makeExec(mockPermissions));
 
-    await seedPermission(mockDataSource as DataSource);
+    await seedPermission(mockConnection as Connection);
 
-    expect(mockRolePermRepo.create).toHaveBeenCalledWith({
-      roleId: 'admin-role-id',
-      permissionId: 'perm-1',
-    });
-    expect(mockRolePermRepo.create).toHaveBeenCalledWith({
-      roleId: 'admin-role-id',
-      permissionId: 'perm-2',
-    });
+    expect(mockRolePermModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        roleId: 'admin-role-id',
+        permissionId: 'perm-1',
+      }),
+    );
+    expect(mockRolePermModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        roleId: 'admin-role-id',
+        permissionId: 'perm-2',
+      }),
+    );
   });
 });

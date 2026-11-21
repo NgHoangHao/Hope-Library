@@ -1,31 +1,25 @@
-import {
-  Column,
-  Entity,
-  OneToMany,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
-import { Book } from '../book/book.entity.js';
+import type { Book } from '../book/book.entity.js';
 
-@Entity('authors')
+@Schema({ collection: 'authors', timestamps: true })
 export class Author extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255 })
+  @Prop({ type: String, required: true })
   name: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 'max', nullable: true })
+  @Prop({ type: String, default: null })
   biography?: string | null;
 
-  @AutoMap(() => [Book])
-  @OneToMany(() => Book, (book) => book.author)
-  books?: Relation<Book>[];
+  @AutoMap(() => [Object])
+  books?: Book[];
 
   constructor(partial?: Partial<Author>) {
     super(partial);
@@ -34,3 +28,5 @@ export class Author extends BaseEntity {
     }
   }
 }
+
+export const AuthorSchema = SchemaFactory.createForClass(Author);

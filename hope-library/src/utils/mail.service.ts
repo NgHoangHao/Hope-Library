@@ -23,26 +23,107 @@ export interface OverdueReminderEmailPayload {
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private readonly transporter: nodemailer.Transporter;
+  private readonly transporter: nodemailer.Transporter | null;
+  private readonly brevoApiKey?: string;
   private readonly mailFrom: string;
+  private readonly mailFromName: string;
+  private static readonly BREVO_API_ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
   private static readonly OTP_EXPIRATION_CONFIG_KEY = 'OTP_EXPIRATION_MINUTES';
 
   constructor(
     private readonly configService: ConfigService,
     @Optional() private readonly systemConfigService?: SystemConfigService,
   ) {
-    const host = this.configService.get<string>('MAIL_HOST', 'smtp.gmail.com');
-    const port = Number(this.configService.get<string>('MAIL_PORT', '465'));
+    this.brevoApiKey = (
+      this.configService.get<string>('BREVO_API_KEY') ??
+      process.env.BREVO_API_KEY ??
+      ''
+    ).trim() || undefined;
+
     const user = this.configService.get<string>('MAIL_USER');
     const pass = this.configService.get<string>('MAIL_PASSWORD');
-    this.mailFrom = this.configService.get<string>('MAIL_FROM', user || 'noreply@hopelibrary.com');
+    this.mailFrom =
+      this.configService.get<string>('MAIL_FROM', user || 'noreply@hopelibrary.com')?.trim() ||
+      'noreply@hopelibrary.com';
+    this.mailFromName =
+      this.configService.get<string>('MAIL_FROM_NAME', 'Hope Library')?.trim() ||
+      'Hope Library';
 
-    this.transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465, // SSL cho port 465
-      auth: user && pass ? { user, pass } : undefined,
+    if (this.brevoApiKey) {
+      this.transporter = null;
+      this.logger.log(`Đã cấu hình gửi email qua Brevo HTTP API (sender: ${this.mailFrom})`);
+    } else {
+      const host = this.configService.get<string>('MAIL_HOST', 'smtp.gmail.com');
+      const port = Number(this.configService.get<string>('MAIL_PORT', '465'));
+      this.transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465, // SSL cho port 465
+        auth: user && pass ? { user, pass } : undefined,
+      });
+    }
+  }
+
+  /**
+   * Gửi email qua Brevo HTTP API (HTTPS cổng 443 - hoạt động ổn định trên Render Free)
+   * hoặc fallback sang Nodemailer SMTP nếu chưa cấu hình BREVO_API_KEY.
+   */
+  private async sendEmail(params: {
+    to: string;
+    recipientName?: string | null;
+    subject: string;
+    html: string;
+  }): Promise<{ messageId?: string }> {
+    if (this.brevoApiKey) {
+      const response = await fetch(MailService.BREVO_API_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'api-key': this.brevoApiKey,
+        },
+        body: JSON.stringify({
+          sender: {
+            name: this.mailFromName,
+            email: this.mailFrom,
+          },
+          to: [
+            {
+              email: params.to,
+              ...(params.recipientName?.trim()
+                ? { name: params.recipientName.trim() }
+                : {}),
+            },
+          ],
+          subject: params.subject,
+          htmlContent: params.html,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        throw new Error(
+          `Brevo API lỗi (${response.status}): ${errorText || response.statusText}`,
+        );
+      }
+
+      const data = (await response.json().catch(() => ({}))) as {
+        messageId?: string;
+      };
+      return { messageId: data?.messageId };
+    }
+
+    if (!this.transporter) {
+      throw new Error('Chưa cấu hình BREVO_API_KEY hoặc SMTP transporter');
+    }
+
+    const info = await this.transporter.sendMail({
+      from: `"${this.mailFromName}" <${this.mailFrom}>`,
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
     });
+    return { messageId: info.messageId };
   }
 
   /**
@@ -86,11 +167,8 @@ export class MailService {
     const otpExpirationMinutes = await this.getOtpExpirationMinutes();
     const otpExpirationSeconds = Math.round(otpExpirationMinutes * 60);
 
-    const mailOptions: nodemailer.SendMailOptions = {
-      from: `"Hope Library" <${this.mailFrom}>`,
-      to,
-      subject: 'Mã xác thực OTP đăng ký tài khoản - Hope Library',
-      html: `
+    const subject = 'Mã xác thực OTP đăng ký tài khoản - Hope Library';
+    const html = `
         <!DOCTYPE html>
         <html>
         <head>
@@ -139,16 +217,15 @@ export class MailService {
           </div>
         </body>
         </html>
-      `,
-    };
+      `;
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const info = await this.sendEmail({ to, subject, html });
       this.logger.log(`Gửi email OTP thành công tới ${to}. MessageId: ${info.messageId}`);
     } catch (error: any) {
       this.logger.error(`Lỗi khi gửi email OTP tới ${to}: ${error.message}`, error.stack);
       throw AppException.internal(
-        'Không thể gửi mã xác thực OTP qua Gmail. Vui lòng kiểm tra lại địa chỉ email hoặc thử lại sau',
+        'Không thể gửi mã xác thực OTP qua email. Vui lòng kiểm tra lại địa chỉ email hoặc thử lại sau',
         { email: to, details: error.message },
         'SEND_OTP_MAIL_FAILED',
       );
@@ -164,11 +241,8 @@ export class MailService {
     const otpExpirationMinutes = await this.getOtpExpirationMinutes();
     const otpExpirationSeconds = Math.round(otpExpirationMinutes * 60);
 
-    const mailOptions: nodemailer.SendMailOptions = {
-      from: `"Hope Library" <${this.mailFrom}>`,
-      to,
-      subject: 'Mã xác thực OTP đặt lại mật khẩu - Hope Library',
-      html: `
+    const subject = 'Mã xác thực OTP đặt lại mật khẩu - Hope Library';
+    const html = `
         <!DOCTYPE html>
         <html>
         <head>
@@ -217,16 +291,15 @@ export class MailService {
           </div>
         </body>
         </html>
-      `,
-    };
+      `;
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const info = await this.sendEmail({ to, subject, html });
       this.logger.log(`Gửi email OTP quên mật khẩu thành công tới ${to}. MessageId: ${info.messageId}`);
     } catch (error: any) {
       this.logger.error(`Lỗi khi gửi email OTP quên mật khẩu tới ${to}: ${error.message}`, error.stack);
       throw AppException.internal(
-        'Không thể gửi mã xác thực OTP qua Gmail. Vui lòng kiểm tra lại địa chỉ email hoặc thử lại sau',
+        'Không thể gửi mã xác thực OTP qua email. Vui lòng kiểm tra lại địa chỉ email hoặc thử lại sau',
         { email: to, details: error.message },
         'SEND_OTP_MAIL_FAILED',
       );
@@ -275,11 +348,8 @@ export class MailService {
       })
       .join('');
 
-    const mailOptions: nodemailer.SendMailOptions = {
-      from: `"Hope Library" <${this.mailFrom}>`,
-      to,
-      subject: `Nhắc nhở sắp đến hạn trả sách (${formattedDueDate}) - Hope Library`,
-      html: `
+    const subject = `Nhắc nhở sắp đến hạn trả sách (${formattedDueDate}) - Hope Library`;
+    const html = `
         <!DOCTYPE html>
         <html>
         <head>
@@ -342,11 +412,10 @@ export class MailService {
           </div>
         </body>
         </html>
-      `,
-    };
+      `;
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const info = await this.sendEmail({ to, recipientName, subject, html });
       this.logger.log(
         `Gửi email nhắc nhở trả sách thành công tới ${to} (loanId: ${loanId}). MessageId: ${info.messageId}`,
       );
@@ -356,7 +425,7 @@ export class MailService {
         error.stack,
       );
       throw AppException.internal(
-        'Không thể gửi email nhắc nhở trả sách qua Gmail',
+        'Không thể gửi email nhắc nhở trả sách',
         { email: to, loanId, details: error.message },
         'SEND_OVERDUE_REMINDER_MAIL_FAILED',
       );

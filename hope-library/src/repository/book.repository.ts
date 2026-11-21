@@ -1,22 +1,127 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import type { ClientSession, Connection, Model } from 'mongoose';
 import { Book } from '../model/book/book.entity.js';
 import { BookCopy, BookCopyStatus } from '../model/book-copy/book-copy.entity.js';
+import { Author } from '../model/author/author.entity.js';
+import { Category } from '../model/category/category.entity.js';
 import { LoanItem, LoanItemStatus } from '../model/loan-item/loan-item.entity.js';
 import { Loan } from '../model/loan/loan.entity.js';
 import { Fine } from '../model/fine/fine.entity.js';
 import { AppException } from '../common/index.js';
+import {
+  buildContainsRegex,
+  prepareDocumentForSave,
+  toEntities,
+  toEntity,
+} from '../database/mongo.helper.js';
 
 @Injectable()
 export class BookRepository {
   constructor(
-    @InjectRepository(Book)
-    private readonly bookRepo: Repository<Book>,
-    @InjectRepository(BookCopy)
-    private readonly bookCopyRepo: Repository<BookCopy>,
-    private readonly dataSource: DataSource,
+    @InjectModel(Book.name)
+    private readonly bookModel: Model<Book>,
+    @InjectModel(BookCopy.name)
+    private readonly bookCopyModel: Model<BookCopy>,
+    @InjectModel(Author.name)
+    private readonly authorModel: Model<Author>,
+    @InjectModel(Category.name)
+    private readonly categoryModel: Model<Category>,
+    @InjectModel(LoanItem.name)
+    private readonly loanItemModel: Model<LoanItem>,
+    @InjectModel(Loan.name)
+    private readonly loanModel: Model<Loan>,
+    @InjectModel(Fine.name)
+    private readonly fineModel: Model<Fine>,
+    @InjectConnection()
+    private readonly connection: Connection,
   ) {}
+
+  private async attachAuthorAndCategory(
+    books: Book[],
+    session?: ClientSession,
+  ): Promise<Book[]> {
+    if (books.length === 0) return books;
+
+    const authorIds = [
+      ...new Set(books.map((b) => b.authorId).filter((id): id is string => Boolean(id))),
+    ];
+    const categoryIds = [
+      ...new Set(books.map((b) => b.categoryId).filter((id): id is string => Boolean(id))),
+    ];
+
+    const authorQuery = authorIds.length
+      ? this.authorModel.find({ id: { $in: authorIds } }).lean()
+      : null;
+    const categoryQuery = categoryIds.length
+      ? this.categoryModel.find({ id: { $in: categoryIds } }).lean()
+      : null;
+
+    if (session) {
+      authorQuery?.session(session);
+      categoryQuery?.session(session);
+    }
+
+    const [authorDocs, categoryDocs] = await Promise.all([
+      authorQuery ? authorQuery.exec() : Promise.resolve([]),
+      categoryQuery ? categoryQuery.exec() : Promise.resolve([]),
+    ]);
+
+    const authorMap = new Map(toEntities(Author, authorDocs).map((a) => [a.id, a]));
+    const categoryMap = new Map(toEntities(Category, categoryDocs).map((c) => [c.id, c]));
+
+    for (const book of books) {
+      book.author = book.authorId ? (authorMap.get(book.authorId) ?? null) : null;
+      book.category = book.categoryId ? (categoryMap.get(book.categoryId) ?? null) : null;
+    }
+
+    return books;
+  }
+
+  private async attachCopies(
+    books: Book[],
+    includeLoanItems: boolean = false,
+    session?: ClientSession,
+  ): Promise<Book[]> {
+    if (books.length === 0) return books;
+
+    const bookIds = books.map((b) => b.id);
+    const copyQuery = this.bookCopyModel.find({ bookId: { $in: bookIds } }).lean();
+    if (session) copyQuery.session(session);
+    const copyDocs = await copyQuery.exec();
+    const copies = toEntities(BookCopy, copyDocs);
+
+    if (includeLoanItems && copies.length > 0) {
+      const copyIds = copies.map((c) => c.id);
+      const liQuery = this.loanItemModel.find({ bookCopyId: { $in: copyIds } }).lean();
+      if (session) liQuery.session(session);
+      const liDocs = await liQuery.exec();
+      const loanItems = toEntities(LoanItem, liDocs);
+
+      const liByCopy = new Map<string, LoanItem[]>();
+      for (const li of loanItems) {
+        const list = liByCopy.get(li.bookCopyId) ?? [];
+        list.push(li);
+        liByCopy.set(li.bookCopyId, list);
+      }
+      for (const copy of copies) {
+        copy.loanItems = liByCopy.get(copy.id) ?? [];
+      }
+    }
+
+    const copiesByBook = new Map<string, BookCopy[]>();
+    for (const copy of copies) {
+      const list = copiesByBook.get(copy.bookId) ?? [];
+      list.push(copy);
+      copiesByBook.set(copy.bookId, list);
+    }
+
+    for (const book of books) {
+      book.copies = copiesByBook.get(book.id) ?? [];
+    }
+
+    return books;
+  }
 
   /**
    * Tạo sách mới kèm danh sách các bản sao (BookCopy) trong một Transaction an toàn
@@ -25,30 +130,42 @@ export class BookRepository {
     bookData: Partial<Book>,
     copiesData: Partial<BookCopy>[] = [],
   ): Promise<Book> {
-    return await this.dataSource.transaction(async (manager) => {
-      const book = manager.create(Book, {
-        ...bookData,
-        totalCopies: copiesData.length,
-        availableCopies: copiesData.length,
+    const session = await this.connection.startSession();
+    try {
+      let savedBook!: Book;
+      await session.withTransaction(async () => {
+        const book = new Book({
+          ...bookData,
+          totalCopies: copiesData.length,
+          availableCopies: copiesData.length,
+        });
+        const bookPayload = prepareDocumentForSave(book);
+        const [createdBookDoc] = await this.bookModel.create([bookPayload], { session });
+        savedBook = toEntity(Book, createdBookDoc) ?? book;
+
+        if (copiesData.length > 0) {
+          const copyPayloads = copiesData.map((copy) =>
+            prepareDocumentForSave(
+              new BookCopy({
+                ...copy,
+                bookId: savedBook.id,
+                status: copy.status ?? BookCopyStatus.AVAILABLE,
+              }),
+            ),
+          );
+          const createdCopies = await this.bookCopyModel.create(copyPayloads, {
+            session,
+            ordered: true,
+          });
+          savedBook.copies = toEntities(BookCopy, createdCopies);
+        } else {
+          savedBook.copies = [];
+        }
       });
-
-      const savedBook = await manager.save(Book, book);
-
-      if (copiesData.length > 0) {
-        const copies = copiesData.map((copy) =>
-          manager.create(BookCopy, {
-            ...copy,
-            bookId: savedBook.id,
-            status: copy.status ?? BookCopyStatus.AVAILABLE,
-          }),
-        );
-        savedBook.copies = await manager.save(BookCopy, copies);
-      } else {
-        savedBook.copies = [];
-      }
-
       return savedBook;
-    });
+    } finally {
+      await session.endSession();
+    }
   }
 
   /**
@@ -59,95 +176,121 @@ export class BookRepository {
     bookData: Partial<Book>,
     copiesData?: Partial<BookCopy>[],
   ): Promise<Book> {
-    return await this.dataSource.transaction(async (manager) => {
-      const bookRepo = manager.getRepository(Book);
-      const copyRepo = manager.getRepository(BookCopy);
+    const session = await this.connection.startSession();
+    try {
+      let resultBook!: Book;
+      await session.withTransaction(async () => {
+        const bookDoc = await this.bookModel
+          .findOne({ id: bookId })
+          .session(session)
+          .lean()
+          .exec();
+        const book = toEntity(Book, bookDoc);
 
-      const book = await bookRepo.findOne({
-        where: { id: bookId },
-        relations: { copies: true },
+        if (!book) {
+          throw AppException.notFound(
+            `Không tìm thấy sách với ID: ${bookId}`,
+            { id: bookId },
+            'BOOK_NOT_FOUND',
+          );
+        }
+
+        await this.attachCopies([book], false, session);
+        Object.assign(book, bookData);
+
+        if (copiesData !== undefined) {
+          const existingCopies = book.copies || [];
+          const existingCopyMap = new Map(existingCopies.map((c) => [c.id, c]));
+          const existingBarcodeMap = new Map(existingCopies.map((c) => [c.barcode, c]));
+
+          const incomingIds = new Set(copiesData.map((c) => c.id).filter(Boolean));
+          const toDeleteCopies = existingCopies.filter((c) => !incomingIds.has(c.id));
+
+          for (const toDelete of toDeleteCopies) {
+            if (toDelete.status === BookCopyStatus.BORROWED) {
+              throw AppException.badRequest(
+                `Không thể xóa bản sao với barcode '${toDelete.barcode}' vì đang được mượn`,
+                { barcode: toDelete.barcode, copyId: toDelete.id },
+                'CANNOT_DELETE_BORROWED_COPY',
+              );
+            }
+          }
+
+          if (toDeleteCopies.length > 0) {
+            await this.bookCopyModel
+              .deleteMany({ id: { $in: toDeleteCopies.map((c) => c.id) } })
+              .session(session)
+              .exec();
+          }
+
+          const savedCopies: BookCopy[] = [];
+          for (const copyDto of copiesData) {
+            let copyEntity: BookCopy;
+            if (copyDto.id && existingCopyMap.has(copyDto.id)) {
+              copyEntity = existingCopyMap.get(copyDto.id)!;
+              copyEntity.barcode = copyDto.barcode!;
+              if (copyDto.shelfLocation !== undefined) {
+                copyEntity.shelfLocation = copyDto.shelfLocation;
+              }
+              if (copyDto.status) {
+                copyEntity.status = copyDto.status;
+              }
+            } else if (!copyDto.id && copyDto.barcode && existingBarcodeMap.has(copyDto.barcode)) {
+              copyEntity = existingBarcodeMap.get(copyDto.barcode)!;
+              if (copyDto.shelfLocation !== undefined) {
+                copyEntity.shelfLocation = copyDto.shelfLocation;
+              }
+              if (copyDto.status) {
+                copyEntity.status = copyDto.status;
+              }
+            } else {
+              copyEntity = new BookCopy({
+                ...copyDto,
+                bookId: book.id,
+                status: copyDto.status ?? BookCopyStatus.AVAILABLE,
+              });
+            }
+
+            const copyPayload = prepareDocumentForSave(copyEntity);
+            const savedCopyDoc = await this.bookCopyModel
+              .findOneAndUpdate(
+                { id: copyPayload.id },
+                { $set: copyPayload },
+                { upsert: true, returnDocument: 'after', session },
+              )
+              .lean()
+              .exec();
+            savedCopies.push(toEntity(BookCopy, savedCopyDoc) ?? copyEntity);
+          }
+
+          book.copies = savedCopies;
+          book.totalCopies = savedCopies.length;
+          book.availableCopies = savedCopies.filter(
+            (c) => c.status === BookCopyStatus.AVAILABLE,
+          ).length;
+        }
+
+        const bookPayload = prepareDocumentForSave(book);
+        const updatedDoc = await this.bookModel
+          .findOneAndUpdate(
+            { id: book.id },
+            { $set: bookPayload },
+            { returnDocument: 'after', session },
+          )
+          .lean()
+          .exec();
+
+        resultBook = toEntity(Book, updatedDoc) ?? book;
+        await Promise.all([
+          this.attachAuthorAndCategory([resultBook], session),
+          this.attachCopies([resultBook], false, session),
+        ]);
       });
 
-      if (!book) {
-        throw AppException.notFound(
-          `Không tìm thấy sách với ID: ${bookId}`,
-          { id: bookId },
-          'BOOK_NOT_FOUND',
-        );
-      }
-
-      // Cập nhật thông tin cơ bản của sách
-      Object.assign(book, bookData);
-
-      // Nếu có cập nhật danh sách bản sao
-      if (copiesData !== undefined) {
-        const existingCopies = book.copies || [];
-        const existingCopyMap = new Map(existingCopies.map((c) => [c.id, c]));
-        const existingBarcodeMap = new Map(existingCopies.map((c) => [c.barcode, c]));
-
-        const incomingIds = new Set(copiesData.map((c) => c.id).filter(Boolean));
-        const toDeleteCopies = existingCopies.filter((c) => !incomingIds.has(c.id));
-
-        // Kiểm tra xem có bản sao nào đang BORROWED mà bị xóa không
-        for (const toDelete of toDeleteCopies) {
-          if (toDelete.status === BookCopyStatus.BORROWED) {
-            throw AppException.badRequest(
-              `Không thể xóa bản sao với barcode '${toDelete.barcode}' vì đang được mượn`,
-              { barcode: toDelete.barcode, copyId: toDelete.id },
-              'CANNOT_DELETE_BORROWED_COPY',
-            );
-          }
-        }
-
-        if (toDeleteCopies.length > 0) {
-          await copyRepo.remove(toDeleteCopies);
-        }
-
-        const updatedOrNewCopies: BookCopy[] = [];
-        for (const copyDto of copiesData) {
-          let copyEntity: BookCopy;
-          if (copyDto.id && existingCopyMap.has(copyDto.id)) {
-            copyEntity = existingCopyMap.get(copyDto.id)!;
-            copyEntity.barcode = copyDto.barcode!;
-            if (copyDto.shelfLocation !== undefined) {
-              copyEntity.shelfLocation = copyDto.shelfLocation;
-            }
-            if (copyDto.status) {
-              copyEntity.status = copyDto.status;
-            }
-          } else if (!copyDto.id && copyDto.barcode && existingBarcodeMap.has(copyDto.barcode)) {
-            copyEntity = existingBarcodeMap.get(copyDto.barcode)!;
-            if (copyDto.shelfLocation !== undefined) {
-              copyEntity.shelfLocation = copyDto.shelfLocation;
-            }
-            if (copyDto.status) {
-              copyEntity.status = copyDto.status;
-            }
-          } else {
-            copyEntity = copyRepo.create({
-              ...copyDto,
-              bookId: book.id,
-              status: copyDto.status ?? BookCopyStatus.AVAILABLE,
-            });
-          }
-          updatedOrNewCopies.push(copyEntity);
-        }
-
-        const savedCopies = await copyRepo.save(updatedOrNewCopies);
-        book.copies = savedCopies;
-        book.totalCopies = savedCopies.length;
-        book.availableCopies = savedCopies.filter(
-          (c) => c.status === BookCopyStatus.AVAILABLE,
-        ).length;
-      }
-
-      await bookRepo.save(book);
-
-      return await bookRepo.findOneOrFail({
-        where: { id: book.id },
-        relations: { author: true, category: true, copies: true },
-      });
-    });
+      return resultBook;
+    } finally {
+      await session.endSession();
+    }
   }
 
   /**
@@ -164,8 +307,7 @@ export class BookRepository {
   }
 
   /**
-   * Tính toán chính xác totalCopies và availableCopies trực tiếp từ bảng book_copies
-   * để tránh lệch số liệu do cột cache trên bảng books bị sai lệch
+   * Tính toán chính xác totalCopies và availableCopies trực tiếp từ collection book_copies
    */
   private async applyCopyCountsFromDb(books: Book[]): Promise<Book[]> {
     if (!books || books.length === 0) {
@@ -173,28 +315,30 @@ export class BookRepository {
     }
 
     const bookIds = books.map((b) => b.id);
-    const rawCounts = await this.bookCopyRepo
-      .createQueryBuilder('copy')
-      .select('copy.bookId', 'bookId')
-      .addSelect('COUNT(copy.id)', 'totalCopies')
-      .addSelect(
-        'SUM(CASE WHEN copy.status = :availableStatus THEN 1 ELSE 0 END)',
-        'availableCopies',
-      )
-      .where('copy.bookId IN (:...bookIds)', {
-        bookIds,
-        availableStatus: BookCopyStatus.AVAILABLE,
-      })
-      .groupBy('copy.bookId')
-      .getRawMany<{
-        bookId: string;
-        totalCopies: string | number;
-        availableCopies: string | number;
-      }>();
+    const rawCounts = await this.bookCopyModel
+      .aggregate<{
+        _id: string;
+        totalCopies: number;
+        availableCopies: number;
+      }>([
+        { $match: { bookId: { $in: bookIds } } },
+        {
+          $group: {
+            _id: '$bookId',
+            totalCopies: { $sum: 1 },
+            availableCopies: {
+              $sum: {
+                $cond: [{ $eq: ['$status', BookCopyStatus.AVAILABLE] }, 1, 0],
+              },
+            },
+          },
+        },
+      ])
+      .exec();
 
     const countMap = new Map(
       rawCounts.map((row) => [
-        String(row.bookId).toLowerCase(),
+        String(row._id).toLowerCase(),
         {
           totalCopies: Number(row.totalCopies) || 0,
           availableCopies: Number(row.availableCopies) || 0,
@@ -215,26 +359,24 @@ export class BookRepository {
    * Tìm sách theo ID cùng các quan hệ (tác giả, thể loại, bản sao kèm mục mượn)
    */
   async findById(id: string): Promise<Book | null> {
-    const book = await this.bookRepo.findOne({
-      where: { id },
-      relations: {
-        author: true,
-        category: true,
-        copies: {
-          loanItems: true,
-        },
-      },
-    });
-    return book ? this.applyCopyCountsFromRelation(book) : null;
+    const doc = await this.bookModel.findOne({ id }).lean().exec();
+    const book = toEntity(Book, doc);
+    if (!book) return null;
+
+    await Promise.all([
+      this.attachAuthorAndCategory([book]),
+      this.attachCopies([book], true),
+    ]);
+
+    return this.applyCopyCountsFromRelation(book);
   }
 
   /**
    * Tìm sách theo mã ISBN
    */
   async findByIsbn(isbn: string): Promise<Book | null> {
-    return this.bookRepo.findOne({
-      where: { isbn },
-    });
+    const doc = await this.bookModel.findOne({ isbn }).lean().exec();
+    return toEntity(Book, doc);
   }
 
   /**
@@ -244,18 +386,19 @@ export class BookRepository {
     if (!barcodes || barcodes.length === 0) {
       return [];
     }
-    return this.bookCopyRepo.find({
-      where: { barcode: In(barcodes) },
-    });
+    const docs = await this.bookCopyModel
+      .find({ barcode: { $in: barcodes } })
+      .lean()
+      .exec();
+    return toEntities(BookCopy, docs);
   }
 
   /**
    * Tìm bản sao theo mã barcode đơn lẻ
    */
   async findCopyByBarcode(barcode: string): Promise<BookCopy | null> {
-    return this.bookCopyRepo.findOne({
-      where: { barcode },
-    });
+    const doc = await this.bookCopyModel.findOne({ barcode }).lean().exec();
+    return toEntity(BookCopy, doc);
   }
 
   /**
@@ -272,45 +415,55 @@ export class BookRepository {
     const { page, size, search, categoryId, author, authorId } = options;
     const skip = (page - 1) * size;
 
-    const qb = this.bookRepo
-      .createQueryBuilder('book')
-      .leftJoinAndSelect('book.author', 'author')
-      .leftJoinAndSelect('book.category', 'category');
+    const filter: Record<string, any> = {};
 
-    // 1. Tìm kiếm theo tên sách (title)
     if (search && search.trim()) {
-      qb.andWhere('book.title LIKE :search', { search: `%${search.trim()}%` });
+      filter.title = buildContainsRegex(search);
     }
 
-    // 2. Lọc theo categoryId
     if (categoryId && categoryId.trim()) {
-      qb.andWhere('book.categoryId = :categoryId', { categoryId: categoryId.trim() });
+      filter.categoryId = categoryId.trim();
     }
 
-    // 3. Lọc theo author (hỗ trợ cả authorId dạng UUID hoặc tên tác giả)
     const targetAuthor = author?.trim() || authorId?.trim();
     if (targetAuthor) {
       const isUuid =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetAuthor);
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          targetAuthor,
+        );
+      const matchedAuthors = await this.authorModel
+        .find({ name: buildContainsRegex(targetAuthor) }, { id: 1 })
+        .lean()
+        .exec();
+      const matchedAuthorIds = matchedAuthors.map((a) => a.id);
+
       if (isUuid) {
-        qb.andWhere('(book.authorId = :authorUuid OR author.name LIKE :authorName)', {
-          authorUuid: targetAuthor,
-          authorName: `%${targetAuthor}%`,
-        });
+        filter.authorId = { $in: [...new Set([targetAuthor, ...matchedAuthorIds])] };
       } else {
-        qb.andWhere('author.name LIKE :authorName', {
-          authorName: `%${targetAuthor}%`,
-        });
+        if (matchedAuthorIds.length === 0) {
+          return [[], 0];
+        }
+        filter.authorId = { $in: matchedAuthorIds };
       }
     }
 
-    const [books, total] = await qb
-      .orderBy('book.createdAt', 'DESC')
-      .skip(skip)
-      .take(size)
-      .getManyAndCount();
+    const [docs, total] = await Promise.all([
+      this.bookModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(size)
+        .lean()
+        .exec(),
+      this.bookModel.countDocuments(filter).exec(),
+    ]);
 
-    await this.applyCopyCountsFromDb(books);
+    const books = toEntities(Book, docs);
+    await Promise.all([
+      this.attachAuthorAndCategory(books),
+      this.applyCopyCountsFromDb(books),
+    ]);
+
     return [books, total];
   }
 
@@ -318,19 +471,33 @@ export class BookRepository {
    * Lấy danh sách tất cả sách
    */
   async findAll(): Promise<Book[]> {
-    const books = await this.bookRepo.find({
-      relations: { author: true, category: true, copies: true },
-      order: { createdAt: 'DESC' },
-    });
+    const docs = await this.bookModel
+      .find()
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+    const books = toEntities(Book, docs);
+    await Promise.all([
+      this.attachAuthorAndCategory(books),
+      this.attachCopies(books, false),
+    ]);
     return books.map((book) => this.applyCopyCountsFromRelation(book));
   }
-
 
   /**
    * Lưu hoặc cập nhật thông tin sách
    */
   async save(book: Book): Promise<Book> {
-    return this.bookRepo.save(book);
+    const payload = prepareDocumentForSave(book);
+    const saved = await this.bookModel
+      .findOneAndUpdate(
+        { id: payload.id },
+        { $set: payload },
+        { upsert: true, returnDocument: 'after' },
+      )
+      .lean()
+      .exec();
+    return toEntity(Book, saved) ?? book;
   }
 
   /**
@@ -338,88 +505,93 @@ export class BookRepository {
    * trong một Transaction an toàn. Nếu có bất kỳ bản sao nào đang được mượn thì ném ngoại lệ.
    */
   async deleteBookWithRelations(bookId: string): Promise<boolean> {
-    return await this.dataSource.transaction(async (manager) => {
-      const bookRepo = manager.getRepository(Book);
-      const copyRepo = manager.getRepository(BookCopy);
-      const loanItemRepo = manager.getRepository(LoanItem);
-      const loanRepo = manager.getRepository(Loan);
-      const fineRepo = manager.getRepository(Fine);
+    const session = await this.connection.startSession();
+    try {
+      let deleted = false;
+      await session.withTransaction(async () => {
+        const bookDoc = await this.bookModel
+          .findOne({ id: bookId })
+          .session(session)
+          .lean()
+          .exec();
+        const book = toEntity(Book, bookDoc);
 
-      const book = await bookRepo.findOne({
-        where: { id: bookId },
-        relations: {
-          copies: {
-            loanItems: true,
-          },
-        },
-      });
-
-      if (!book) {
-        throw AppException.notFound(
-          `Không tìm thấy sách với ID: ${bookId}`,
-          { id: bookId },
-          'BOOK_NOT_FOUND',
-        );
-      }
-
-      const copies = book.copies || [];
-
-      // Kiểm tra xem có bản sao nào đang được mượn hay không
-      const borrowedCopies = copies.filter((copy) => {
-        const isCopyBorrowed =
-          copy.status === BookCopyStatus.BORROWED || copy.status === BookCopyStatus.RESERVED;
-        const hasBorrowedLoanItem = copy.loanItems?.some(
-          (item) => item.status === LoanItemStatus.BORROWED,
-        );
-        return isCopyBorrowed || hasBorrowedLoanItem;
-      });
-
-      if (borrowedCopies.length > 0) {
-        throw AppException.badRequest(
-          `Không thể xóa sách vì có ${borrowedCopies.length} bản sao đang được mượn`,
-          {
-            bookId,
-            borrowedBarcodes: borrowedCopies.map((c) => c.barcode),
-            borrowedCopiesCount: borrowedCopies.length,
-          },
-          'CANNOT_DELETE_BORROWED_BOOK',
-        );
-      }
-
-      // Xử lý và xóa các đối tượng liên quan nếu sách có bản sao
-      if (copies.length > 0) {
-        const copyIds = copies.map((c) => c.id);
-
-        const relatedLoanItems = await loanItemRepo.find({
-          where: { bookCopyId: In(copyIds) },
-        });
-
-        if (relatedLoanItems.length > 0) {
-          const affectedLoanIds = [...new Set(relatedLoanItems.map((item) => item.loanId))];
-
-          // Xóa toàn bộ các loanItems của các bản sao này
-          await loanItemRepo.delete({ bookCopyId: In(copyIds) });
-
-          // Kiểm tra và dọn dẹp các phiếu mượn (Loan) nếu không còn loanItem nào
-          for (const loanId of affectedLoanIds) {
-            const remainingCount = await loanItemRepo.count({
-              where: { loanId },
-            });
-            if (remainingCount === 0) {
-              await fineRepo.delete({ loanId });
-              await loanRepo.delete({ id: loanId });
-            }
-          }
+        if (!book) {
+          throw AppException.notFound(
+            `Không tìm thấy sách với ID: ${bookId}`,
+            { id: bookId },
+            'BOOK_NOT_FOUND',
+          );
         }
 
-        // Xóa toàn bộ bản sao của sách
-        await copyRepo.delete({ bookId });
-      }
+        await this.attachCopies([book], true, session);
+        const copies = book.copies || [];
 
-      // Xóa sách
-      const deleteResult = await bookRepo.delete({ id: bookId });
-      return (deleteResult.affected ?? 0) > 0;
-    });
+        const borrowedCopies = copies.filter((copy) => {
+          const isCopyBorrowed =
+            copy.status === BookCopyStatus.BORROWED ||
+            copy.status === BookCopyStatus.RESERVED;
+          const hasBorrowedLoanItem = copy.loanItems?.some(
+            (item) => item.status === LoanItemStatus.BORROWED,
+          );
+          return isCopyBorrowed || hasBorrowedLoanItem;
+        });
+
+        if (borrowedCopies.length > 0) {
+          throw AppException.badRequest(
+            `Không thể xóa sách vì có ${borrowedCopies.length} bản sao đang được mượn`,
+            {
+              bookId,
+              borrowedBarcodes: borrowedCopies.map((c) => c.barcode),
+              borrowedCopiesCount: borrowedCopies.length,
+            },
+            'CANNOT_DELETE_BORROWED_BOOK',
+          );
+        }
+
+        if (copies.length > 0) {
+          const copyIds = copies.map((c) => c.id);
+          const relatedLoanItems = await this.loanItemModel
+            .find({ bookCopyId: { $in: copyIds } })
+            .session(session)
+            .lean()
+            .exec();
+
+          if (relatedLoanItems.length > 0) {
+            const affectedLoanIds = [
+              ...new Set(relatedLoanItems.map((item) => item.loanId)),
+            ];
+
+            await this.loanItemModel
+              .deleteMany({ bookCopyId: { $in: copyIds } })
+              .session(session)
+              .exec();
+
+            for (const loanId of affectedLoanIds) {
+              const remainingCount = await this.loanItemModel
+                .countDocuments({ loanId })
+                .session(session)
+                .exec();
+              if (remainingCount === 0) {
+                await this.fineModel.deleteMany({ loanId }).session(session).exec();
+                await this.loanModel.deleteOne({ id: loanId }).session(session).exec();
+              }
+            }
+          }
+
+          await this.bookCopyModel.deleteMany({ bookId }).session(session).exec();
+        }
+
+        const deleteResult = await this.bookModel
+          .deleteOne({ id: bookId })
+          .session(session)
+          .exec();
+        deleted = (deleteResult.deletedCount ?? 0) > 0;
+      });
+      return deleted;
+    } finally {
+      await session.endSession();
+    }
   }
 
   /**
@@ -433,28 +605,44 @@ export class BookRepository {
    * Lấy top các sách có số lượng loanItem trạng thái RETURNED nhiều nhất
    */
   async findTopReturnedBooks(limit: number = 4): Promise<Book[]> {
-    const rawResults = await this.bookRepo
-      .createQueryBuilder('book')
-      .innerJoin('book.copies', 'copy')
-      .innerJoin('copy.loanItems', 'loanItem')
-      .where('loanItem.status = :status', { status: LoanItemStatus.RETURNED })
-      .select('book.id', 'bookId')
-      .addSelect('COUNT(loanItem.id)', 'returnedCount')
-      .groupBy('book.id')
-      .orderBy('COUNT(loanItem.id)', 'DESC')
-      .limit(limit)
-      .getRawMany<{ bookId: string; returnedCount: string | number }>();
+    const rawResults = await this.loanItemModel
+      .aggregate<{ _id: string; returnedCount: number }>([
+        { $match: { status: LoanItemStatus.RETURNED } },
+        {
+          $lookup: {
+            from: 'book_copies',
+            localField: 'bookCopyId',
+            foreignField: 'id',
+            as: 'copy',
+          },
+        },
+        { $unwind: '$copy' },
+        {
+          $group: {
+            _id: '$copy.bookId',
+            returnedCount: { $sum: 1 },
+          },
+        },
+        { $sort: { returnedCount: -1 } },
+        { $limit: limit },
+      ])
+      .exec();
 
     if (!rawResults || rawResults.length === 0) {
       return [];
     }
 
-    const bookIds = rawResults.map((r) => r.bookId);
+    const bookIds = rawResults.map((r) => r._id).filter(Boolean);
+    const bookDocs = await this.bookModel
+      .find({ id: { $in: bookIds } })
+      .lean()
+      .exec();
+    const books = toEntities(Book, bookDocs);
 
-    const books = await this.bookRepo.find({
-      where: { id: In(bookIds) },
-      relations: { author: true, category: true, copies: true },
-    });
+    await Promise.all([
+      this.attachAuthorAndCategory(books),
+      this.attachCopies(books, false),
+    ]);
 
     const bookMap = new Map(
       books.map((b) => [b.id, this.applyCopyCountsFromRelation(b)]),

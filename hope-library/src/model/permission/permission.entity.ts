@@ -1,30 +1,24 @@
-import {
-  Column,
-  Entity,
-  OneToMany,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
-import { RolePermission } from '../role-permission/role-permission.entity.js';
+import type { RolePermission } from '../role-permission/role-permission.entity.js';
 
-@Entity('permissions')
+@Schema({ collection: 'permissions', timestamps: true })
 export class Permission extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 100, unique: true })
+  @Prop({ type: String, required: true, unique: true })
   code: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255, nullable: true })
+  @Prop({ type: String, default: null })
   description?: string | null;
 
-  @OneToMany(() => RolePermission, (rolePermission) => rolePermission.permission)
-  rolePermissions?: Relation<RolePermission>[];
+  rolePermissions?: RolePermission[];
 
   constructor(partial?: Partial<Permission>) {
     super(partial);
@@ -33,3 +27,5 @@ export class Permission extends BaseEntity {
     }
   }
 }
+
+export const PermissionSchema = SchemaFactory.createForClass(Permission);

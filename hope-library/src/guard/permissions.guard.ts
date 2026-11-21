@@ -4,17 +4,29 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { DataSource } from 'typeorm';
+import { InjectModel } from '@nestjs/mongoose';
+import type { Model } from 'mongoose';
 import type { Request } from 'express';
 import { PERMISSIONS_KEY } from '../decorator/permissions.decorator.js';
 import { TokenHelper } from '../utils/token.helper.js';
 import { AppException } from '../common/index.js';
+import { UserRole } from '../model/user-role/user-role.entity.js';
+import { Role } from '../model/role/role.entity.js';
+import { RolePermission } from '../model/role-permission/role-permission.entity.js';
+import { Permission } from '../model/permission/permission.entity.js';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly dataSource: DataSource,
+    @InjectModel(UserRole.name)
+    private readonly userRoleModel: Model<UserRole>,
+    @InjectModel(Role.name)
+    private readonly roleModel: Model<Role>,
+    @InjectModel(RolePermission.name)
+    private readonly rolePermissionModel: Model<RolePermission>,
+    @InjectModel(Permission.name)
+    private readonly permissionModel: Model<Permission>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -50,51 +62,76 @@ export class PermissionsGuard implements CanActivate {
     const payload = TokenHelper.decodeToken(token);
     (request as any).user = payload;
 
-    // 3. Lấy danh sách các mã quyền (permission code) mà người dùng sở hữu từ CSDL
+    // 3. Lấy danh sách các mã quyền (permission code) mà người dùng sở hữu từ MongoDB
     let userPermissionCodes: string[] = [];
     let hasUserRolesInDb = false;
     const userId = payload.userId || payload.sub;
 
     if (userId) {
-      const userRolesCount = await this.dataSource
-        .createQueryBuilder()
-        .select('ur.roleId', 'roleId')
-        .from('user_roles', 'ur')
-        .where('ur.userId = :userId', { userId })
-        .getRawMany<{ roleId: string }>();
+      const userRoles = await this.userRoleModel
+        .find({ userId }, { roleId: 1 })
+        .lean()
+        .exec();
 
-      hasUserRolesInDb = userRolesCount.length > 0;
+      const roleIds = userRoles.map((ur) => ur.roleId).filter(Boolean);
+      hasUserRolesInDb = roleIds.length > 0;
 
       if (hasUserRolesInDb) {
-        const rawPermissions = await this.dataSource
-          .createQueryBuilder()
-          .select('p.code', 'code')
-          .from('permissions', 'p')
-          .innerJoin('role_permissions', 'rp', 'rp.permissionId = p.id')
-          .innerJoin('user_roles', 'ur', 'ur.roleId = rp.roleId')
-          .where('ur.userId = :userId', { userId })
-          .getRawMany<{ code: string }>();
+        const rolePermissions = await this.rolePermissionModel
+          .find({ roleId: { $in: roleIds } }, { permissionId: 1 })
+          .lean()
+          .exec();
 
-        userPermissionCodes = rawPermissions
-          .map((row) => row.code?.trim().toUpperCase())
-          .filter((code): code is string => Boolean(code));
+        const permissionIds = [
+          ...new Set(rolePermissions.map((rp) => rp.permissionId).filter(Boolean)),
+        ];
+
+        if (permissionIds.length > 0) {
+          const permissions = await this.permissionModel
+            .find({ id: { $in: permissionIds } }, { code: 1 })
+            .lean()
+            .exec();
+
+          userPermissionCodes = permissions
+            .map((p) => p.code?.trim().toUpperCase())
+            .filter((code): code is string => Boolean(code));
+        }
       }
     }
 
     // Fallback: chỉ khi userId không có liên kết user_roles trong DB mới kiểm tra theo danh sách vai trò (roles) trong token
-    if (!hasUserRolesInDb && userPermissionCodes.length === 0 && payload.roles && payload.roles.length > 0) {
-      const rawPermissions = await this.dataSource
-        .createQueryBuilder()
-        .select('p.code', 'code')
-        .from('permissions', 'p')
-        .innerJoin('role_permissions', 'rp', 'rp.permissionId = p.id')
-        .innerJoin('roles', 'r', 'r.id = rp.roleId')
-        .where('r.name IN (:...roles)', { roles: payload.roles })
-        .getRawMany<{ code: string }>();
+    if (
+      !hasUserRolesInDb &&
+      userPermissionCodes.length === 0 &&
+      payload.roles &&
+      payload.roles.length > 0
+    ) {
+      const roles = await this.roleModel
+        .find({ name: { $in: payload.roles } }, { id: 1 })
+        .lean()
+        .exec();
+      const roleIds = roles.map((r) => r.id).filter(Boolean);
 
-      userPermissionCodes = rawPermissions
-        .map((row) => row.code?.trim().toUpperCase())
-        .filter((code): code is string => Boolean(code));
+      if (roleIds.length > 0) {
+        const rolePermissions = await this.rolePermissionModel
+          .find({ roleId: { $in: roleIds } }, { permissionId: 1 })
+          .lean()
+          .exec();
+        const permissionIds = [
+          ...new Set(rolePermissions.map((rp) => rp.permissionId).filter(Boolean)),
+        ];
+
+        if (permissionIds.length > 0) {
+          const permissions = await this.permissionModel
+            .find({ id: { $in: permissionIds } }, { code: 1 })
+            .lean()
+            .exec();
+
+          userPermissionCodes = permissions
+            .map((p) => p.code?.trim().toUpperCase())
+            .filter((code): code is string => Boolean(code));
+        }
+      }
     }
 
     const permissionSet = new Set(userPermissionCodes);

@@ -1,40 +1,59 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectModel } from '@nestjs/mongoose';
+import type { Model } from 'mongoose';
 import { Role } from '../model/role/role.entity.js';
+import {
+  prepareDocumentForSave,
+  toEntities,
+  toEntity,
+} from '../database/mongo.helper.js';
 
 @Injectable()
 export class RoleRepository {
   constructor(
-    @InjectRepository(Role)
-    private readonly roleRepo: Repository<Role>,
+    @InjectModel(Role.name)
+    private readonly roleModel: Model<Role>,
   ) {}
 
   async findAll(): Promise<Role[]> {
-    return this.roleRepo.find({
-      order: { createdAt: 'DESC' },
-    });
+    const docs = await this.roleModel
+      .find()
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+    return toEntities(Role, docs);
   }
 
   async findById(id: string): Promise<Role | null> {
-    return this.roleRepo.findOne({ where: { id } });
+    const doc = await this.roleModel.findOne({ id }).lean().exec();
+    return toEntity(Role, doc);
   }
 
   async findByName(name: string): Promise<Role | null> {
-    return this.roleRepo.findOne({ where: { name } });
+    const doc = await this.roleModel.findOne({ name }).lean().exec();
+    return toEntity(Role, doc);
   }
 
   async create(data: { name: string; description?: string | null }): Promise<Role> {
-    const role = this.roleRepo.create(data);
-    return this.roleRepo.save(role);
+    const role = new Role(data);
+    return this.save(role);
   }
 
   async save(role: Role): Promise<Role> {
-    return this.roleRepo.save(role);
+    const payload = prepareDocumentForSave(role);
+    const saved = await this.roleModel
+      .findOneAndUpdate(
+        { id: payload.id },
+        { $set: payload },
+        { upsert: true, returnDocument: 'after' },
+      )
+      .lean()
+      .exec();
+    return toEntity(Role, saved) ?? role;
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.roleRepo.delete(id);
-    return (result.affected ?? 0) > 0;
+    const result = await this.roleModel.deleteOne({ id }).exec();
+    return (result.deletedCount ?? 0) > 0;
   }
 }

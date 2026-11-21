@@ -1,4 +1,5 @@
-import { DataSource } from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import type { Connection, Model } from 'mongoose';
 import { Permission } from '../model/permission/permission.entity.js';
 import { Role } from '../model/role/role.entity.js';
 import { RolePermission } from '../model/role-permission/role-permission.entity.js';
@@ -322,61 +323,60 @@ export const API_PERMISSIONS: ApiPermissionItem[] = [
 ];
 
 /**
- * Hàm thực thi seed quyền hạn vào cơ sở dữ liệu
+ * Hàm thực thi seed quyền hạn vào cơ sở dữ liệu MongoDB
  */
-export async function seedPermission(dataSource: DataSource): Promise<void> {
-  const permRepo = dataSource.getRepository(Permission);
-  const roleRepo = dataSource.getRepository(Role);
-  const rolePermRepo = dataSource.getRepository(RolePermission);
+export async function seedPermission(connection: Connection): Promise<void> {
+  const permModel = connection.model<Permission>(Permission.name) as Model<Permission>;
+  const roleModel = connection.model<Role>(Role.name) as Model<Role>;
+  const rolePermModel = connection.model<RolePermission>(RolePermission.name) as Model<RolePermission>;
 
   console.log(`Bắt đầu khởi tạo ${API_PERMISSIONS.length} quyền hạn ứng với các API...`);
 
   // 1. Khởi tạo / cập nhật danh sách quyền hạn
   for (const item of API_PERMISSIONS) {
-    const existing = await permRepo.findOneBy({ code: item.code });
+    const existing = await permModel.findOne({ code: item.code }).exec();
     if (!existing) {
-      await permRepo.save(
-        permRepo.create({
-          code: item.code,
-          description: item.description,
-        }),
-      );
+      await permModel.create({
+        id: randomUUID(),
+        code: item.code,
+        description: item.description,
+      });
     } else if (existing.description !== item.description) {
       existing.description = item.description;
-      await permRepo.save(existing);
+      await existing.save();
     }
   }
 
   // 2. Tự động khởi tạo vai trò ADMIN nếu chưa tồn tại
-  let adminRole = await roleRepo.findOneBy({ name: 'ADMIN' });
+  let adminRole = await roleModel.findOne({ name: 'ADMIN' }).exec();
   if (!adminRole) {
-    adminRole = await roleRepo.save(
-      roleRepo.create({
-        name: 'ADMIN',
-        description: 'Quản trị viên toàn quyền hệ thống',
-      }),
-    );
+    adminRole = await roleModel.create({
+      id: randomUUID(),
+      name: 'ADMIN',
+      description: 'Quản trị viên toàn quyền hệ thống',
+    });
     console.log('Đã tạo vai trò ADMIN mặc định');
   }
 
   // 3. Gán toàn bộ quyền hạn cho vai trò ADMIN
   if (adminRole) {
-    const allPermissions = await permRepo.find();
+    const allPermissions = await permModel.find().exec();
     let assignedAdminCount = 0;
 
     for (const perm of allPermissions) {
-      const existingAssignment = await rolePermRepo.findOneBy({
-        roleId: adminRole.id,
-        permissionId: perm.id,
-      });
+      const existingAssignment = await rolePermModel
+        .findOne({
+          roleId: adminRole.id,
+          permissionId: perm.id,
+        })
+        .exec();
 
       if (!existingAssignment) {
-        await rolePermRepo.save(
-          rolePermRepo.create({
-            roleId: adminRole.id,
-            permissionId: perm.id,
-          }),
-        );
+        await rolePermModel.create({
+          roleId: adminRole.id,
+          permissionId: perm.id,
+          assignedAt: new Date(),
+        });
         assignedAdminCount++;
       }
     }
@@ -387,7 +387,7 @@ export async function seedPermission(dataSource: DataSource): Promise<void> {
   }
 
   // 4. Gán quyền cơ bản cho vai trò THỦ THƯ (LIBRARIAN) nếu có
-  const librarianRole = await roleRepo.findOneBy({ name: 'LIBRARIAN' });
+  const librarianRole = await roleModel.findOne({ name: 'LIBRARIAN' }).exec();
   if (librarianRole) {
     const librarianPermCodes = [
       'BOOK_CREATE', 'BOOK_READ', 'BOOK_UPDATE', 'BOOK_DELETE',
@@ -400,19 +400,20 @@ export async function seedPermission(dataSource: DataSource): Promise<void> {
     ];
 
     for (const code of librarianPermCodes) {
-      const perm = await permRepo.findOneBy({ code });
+      const perm = await permModel.findOne({ code }).exec();
       if (perm) {
-        const existingAssignment = await rolePermRepo.findOneBy({
-          roleId: librarianRole.id,
-          permissionId: perm.id,
-        });
+        const existingAssignment = await rolePermModel
+          .findOne({
+            roleId: librarianRole.id,
+            permissionId: perm.id,
+          })
+          .exec();
         if (!existingAssignment) {
-          await rolePermRepo.save(
-            rolePermRepo.create({
-              roleId: librarianRole.id,
-              permissionId: perm.id,
-            }),
-          );
+          await rolePermModel.create({
+            roleId: librarianRole.id,
+            permissionId: perm.id,
+            assignedAt: new Date(),
+          });
         }
       }
     }
@@ -420,7 +421,7 @@ export async function seedPermission(dataSource: DataSource): Promise<void> {
   }
 
   // 5. Gán quyền cơ bản cho vai trò ĐỌC GIẢ (BORROWER) nếu có
-  const borrowerRole = await roleRepo.findOneBy({ name: 'BORROWER' });
+  const borrowerRole = await roleModel.findOne({ name: 'BORROWER' }).exec();
   if (borrowerRole) {
     const borrowerPermCodes = [
       'BOOK_READ',
@@ -434,19 +435,20 @@ export async function seedPermission(dataSource: DataSource): Promise<void> {
     ];
 
     for (const code of borrowerPermCodes) {
-      const perm = await permRepo.findOneBy({ code });
+      const perm = await permModel.findOne({ code }).exec();
       if (perm) {
-        const existingAssignment = await rolePermRepo.findOneBy({
-          roleId: borrowerRole.id,
-          permissionId: perm.id,
-        });
+        const existingAssignment = await rolePermModel
+          .findOne({
+            roleId: borrowerRole.id,
+            permissionId: perm.id,
+          })
+          .exec();
         if (!existingAssignment) {
-          await rolePermRepo.save(
-            rolePermRepo.create({
-              roleId: borrowerRole.id,
-              permissionId: perm.id,
-            }),
-          );
+          await rolePermModel.create({
+            roleId: borrowerRole.id,
+            permissionId: perm.id,
+            assignedAt: new Date(),
+          });
         }
       }
     }

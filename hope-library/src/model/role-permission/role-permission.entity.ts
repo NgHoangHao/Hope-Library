@@ -1,39 +1,25 @@
 import { AutoMap } from '@automapper/classes';
-import {
-  CreateDateColumn,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  PrimaryColumn,
-  type Relation,
-} from 'typeorm';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { BaseEntity } from '../base.entity.js';
-import { Role } from '../role/role.entity.js';
-import { Permission } from '../permission/permission.entity.js';
+import type { Role } from '../role/role.entity.js';
+import type { Permission } from '../permission/permission.entity.js';
 
-@Entity('role_permissions')
+@Schema({ collection: 'role_permissions', timestamps: true })
 export class RolePermission extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Prop({ type: String, required: true, index: true })
   roleId: string;
 
   @AutoMap(() => String)
-  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Prop({ type: String, required: true, index: true })
   permissionId: string;
 
   @AutoMap(() => Date)
-  @CreateDateColumn({ type: 'datetime2' })
+  @Prop({ type: Date, default: () => new Date() })
   assignedAt: Date;
 
-  @ManyToOne(() => Role, (role) => role.rolePermissions, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'roleId' })
-  role?: Relation<Role>;
-
-  @ManyToOne(() => Permission, (permission) => permission.rolePermissions, {
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'permissionId' })
-  permission?: Relation<Permission>;
+  role?: Role;
+  permission?: Permission;
 
   constructor(partial?: Partial<RolePermission>) {
     super(partial);
@@ -43,3 +29,6 @@ export class RolePermission extends BaseEntity {
     }
   }
 }
+
+export const RolePermissionSchema = SchemaFactory.createForClass(RolePermission);
+RolePermissionSchema.index({ roleId: 1, permissionId: 1 }, { unique: true });

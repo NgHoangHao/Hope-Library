@@ -1,88 +1,152 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectModel } from '@nestjs/mongoose';
+import type { Model } from 'mongoose';
 import { Permission } from '../model/permission/permission.entity.js';
 import { Role } from '../model/role/role.entity.js';
+import { RolePermission } from '../model/role-permission/role-permission.entity.js';
+import { UserRole } from '../model/user-role/user-role.entity.js';
+import {
+  prepareDocumentForSave,
+  toEntities,
+  toEntity,
+} from '../database/mongo.helper.js';
 
 @Injectable()
 export class PermissionRepository {
   constructor(
-    @InjectRepository(Permission)
-    private readonly permissionRepo: Repository<Permission>,
-    @InjectRepository(Role)
-    private readonly roleRepo: Repository<Role>,
+    @InjectModel(Permission.name)
+    private readonly permissionModel: Model<Permission>,
+    @InjectModel(Role.name)
+    private readonly roleModel: Model<Role>,
+    @InjectModel(RolePermission.name)
+    private readonly rolePermissionModel: Model<RolePermission>,
+    @InjectModel(UserRole.name)
+    private readonly userRoleModel: Model<UserRole>,
   ) {}
 
   async findAll(): Promise<Permission[]> {
-    return this.permissionRepo.find({
-      order: { createdAt: 'DESC' },
-    });
+    const docs = await this.permissionModel
+      .find()
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+    return toEntities(Permission, docs);
   }
 
   async findById(id: string): Promise<Permission | null> {
-    return this.permissionRepo.findOne({ where: { id } });
+    const doc = await this.permissionModel.findOne({ id }).lean().exec();
+    return toEntity(Permission, doc);
   }
 
   async findByIdWithRolePermissions(id: string): Promise<Permission | null> {
-    return this.permissionRepo.findOne({
-      where: { id },
-      relations: {
-        rolePermissions: true,
-      },
-    });
+    const doc = await this.permissionModel.findOne({ id }).lean().exec();
+    const permission = toEntity(Permission, doc);
+    if (!permission) {
+      return null;
+    }
+    const rpDocs = await this.rolePermissionModel
+      .find({ permissionId: permission.id })
+      .lean()
+      .exec();
+    permission.rolePermissions = toEntities(RolePermission, rpDocs);
+    return permission;
   }
 
   async findByCode(code: string): Promise<Permission | null> {
-    return this.permissionRepo.findOne({ where: { code } });
+    const doc = await this.permissionModel.findOne({ code }).lean().exec();
+    return toEntity(Permission, doc);
   }
 
   async findRoleById(roleId: string): Promise<Role | null> {
-    return this.roleRepo.findOne({ where: { id: roleId } });
+    const doc = await this.roleModel.findOne({ id: roleId }).lean().exec();
+    return toEntity(Role, doc);
   }
 
   async findByRoleId(roleId: string): Promise<Permission[]> {
-    return this.permissionRepo
-      .createQueryBuilder('permission')
-      .innerJoin('permission.rolePermissions', 'rolePermission')
-      .where('rolePermission.roleId = :roleId', { roleId })
-      .orderBy('permission.code', 'ASC')
-      .getMany();
+    const rolePerms = await this.rolePermissionModel
+      .find({ roleId }, { permissionId: 1 })
+      .lean()
+      .exec();
+    const permIds = [...new Set(rolePerms.map((rp) => rp.permissionId).filter(Boolean))];
+    if (permIds.length === 0) return [];
+
+    const docs = await this.permissionModel
+      .find({ id: { $in: permIds } })
+      .sort({ code: 1 })
+      .lean()
+      .exec();
+    return toEntities(Permission, docs);
   }
 
   async findByRoleNames(roleNames: string[]): Promise<Permission[]> {
     if (!roleNames || roleNames.length === 0) return [];
-    return this.permissionRepo
-      .createQueryBuilder('permission')
-      .innerJoin('permission.rolePermissions', 'rp')
-      .innerJoin('rp.role', 'role')
-      .where('role.name IN (:...roleNames)', { roleNames })
-      .orderBy('permission.code', 'ASC')
-      .getMany();
+    const roles = await this.roleModel
+      .find({ name: { $in: roleNames } }, { id: 1 })
+      .lean()
+      .exec();
+    const roleIds = roles.map((r) => r.id).filter(Boolean);
+    if (roleIds.length === 0) return [];
+
+    const rolePerms = await this.rolePermissionModel
+      .find({ roleId: { $in: roleIds } }, { permissionId: 1 })
+      .lean()
+      .exec();
+    const permIds = [...new Set(rolePerms.map((rp) => rp.permissionId).filter(Boolean))];
+    if (permIds.length === 0) return [];
+
+    const docs = await this.permissionModel
+      .find({ id: { $in: permIds } })
+      .sort({ code: 1 })
+      .lean()
+      .exec();
+    return toEntities(Permission, docs);
   }
 
   async findByUserId(userId: string): Promise<Permission[]> {
     if (!userId) return [];
-    return this.permissionRepo
-      .createQueryBuilder('permission')
-      .innerJoin('permission.rolePermissions', 'rp')
-      .innerJoin('rp.role', 'role')
-      .innerJoin('role.userRoles', 'ur')
-      .where('ur.userId = :userId', { userId })
-      .orderBy('permission.code', 'ASC')
-      .getMany();
+    const userRoles = await this.userRoleModel
+      .find({ userId }, { roleId: 1 })
+      .lean()
+      .exec();
+    const roleIds = [...new Set(userRoles.map((ur) => ur.roleId).filter(Boolean))];
+    if (roleIds.length === 0) return [];
+
+    const rolePerms = await this.rolePermissionModel
+      .find({ roleId: { $in: roleIds } }, { permissionId: 1 })
+      .lean()
+      .exec();
+    const permIds = [...new Set(rolePerms.map((rp) => rp.permissionId).filter(Boolean))];
+    if (permIds.length === 0) return [];
+
+    const docs = await this.permissionModel
+      .find({ id: { $in: permIds } })
+      .sort({ code: 1 })
+      .lean()
+      .exec();
+    return toEntities(Permission, docs);
   }
 
   async create(data: { code: string; description?: string | null }): Promise<Permission> {
-    const permission = this.permissionRepo.create(data);
-    return this.permissionRepo.save(permission);
+    const permission = new Permission(data);
+    return this.save(permission);
   }
 
   async save(permission: Permission): Promise<Permission> {
-    return this.permissionRepo.save(permission);
+    const payload = prepareDocumentForSave(permission);
+    const saved = await this.permissionModel
+      .findOneAndUpdate(
+        { id: payload.id },
+        { $set: payload },
+        { upsert: true, returnDocument: 'after' },
+      )
+      .lean()
+      .exec();
+    return toEntity(Permission, saved) ?? permission;
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.permissionRepo.delete(id);
-    return (result.affected ?? 0) > 0;
+    await this.rolePermissionModel.deleteMany({ permissionId: id }).exec();
+    const result = await this.permissionModel.deleteOne({ id }).exec();
+    return (result.deletedCount ?? 0) > 0;
   }
 }

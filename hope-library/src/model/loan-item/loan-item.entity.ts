@@ -1,14 +1,8 @@
-import {
-  Column,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
-import { Loan } from '../loan/loan.entity.js';
+import type { Loan } from '../loan/loan.entity.js';
 import { BookCopy } from '../book-copy/book-copy.entity.js';
 
 export enum LoanItemStatus {
@@ -18,42 +12,32 @@ export enum LoanItemStatus {
   DAMAGED = 'DAMAGED',
 }
 
-@Entity('loan_items')
+@Schema({ collection: 'loan_items', timestamps: true })
 export class LoanItem extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'uniqueidentifier' })
+  @Prop({ type: String, required: true, index: true })
   loanId: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'uniqueidentifier' })
+  @Prop({ type: String, required: true, index: true })
   bookCopyId: string;
 
   @AutoMap(() => Date)
-  @Column({ type: 'datetime2', nullable: true })
+  @Prop({ type: Date, default: null })
   returnedDate?: Date | null;
 
   @AutoMap(() => String)
-  @Column({
-    type: 'nvarchar',
-    length: 20,
-    default: LoanItemStatus.BORROWED,
-  })
+  @Prop({ type: String, enum: LoanItemStatus, default: LoanItemStatus.BORROWED })
   status: LoanItemStatus;
 
-  @ManyToOne(() => Loan, (loan) => loan.loanItems, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'loanId' })
-  loan?: Relation<Loan>;
+  loan?: Loan;
 
   @AutoMap(() => BookCopy)
-  @ManyToOne(() => BookCopy, (bookCopy) => bookCopy.loanItems, {
-    onDelete: 'NO ACTION',
-  })
-  @JoinColumn({ name: 'bookCopyId' })
-  bookCopy?: Relation<BookCopy>;
+  bookCopy?: BookCopy;
 
   constructor(partial?: Partial<LoanItem>) {
     super(partial);
@@ -63,3 +47,5 @@ export class LoanItem extends BaseEntity {
     }
   }
 }
+
+export const LoanItemSchema = SchemaFactory.createForClass(LoanItem);

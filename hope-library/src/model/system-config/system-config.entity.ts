@@ -1,4 +1,5 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
 
@@ -9,38 +10,38 @@ export enum SystemConfigValueType {
   JSON = 'JSON',
 }
 
-@Entity('system_configs')
+@Schema({ collection: 'system_configs', timestamps: true })
 export class SystemConfig extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 150, unique: true })
+  @Prop({ type: String, required: true, unique: true })
   key: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 'MAX' })
+  @Prop({ type: String, required: true })
   value: string;
 
   @AutoMap(() => String)
-  @Column({
-    type: 'nvarchar',
-    length: 30,
+  @Prop({
+    type: String,
+    enum: SystemConfigValueType,
     default: SystemConfigValueType.STRING,
   })
   valueType: SystemConfigValueType;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 100, nullable: true })
+  @Prop({ type: String, default: null, index: true })
   group?: string | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 500, nullable: true })
+  @Prop({ type: String, default: null })
   description?: string | null;
 
   @AutoMap(() => Boolean)
-  @Column({ type: 'bit', default: false })
+  @Prop({ type: Boolean, default: false })
   isPublic: boolean;
 
   constructor(partial?: Partial<SystemConfig>) {
@@ -52,3 +53,5 @@ export class SystemConfig extends BaseEntity {
     }
   }
 }
+
+export const SystemConfigSchema = SchemaFactory.createForClass(SystemConfig);

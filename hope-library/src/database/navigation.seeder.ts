@@ -1,30 +1,35 @@
-import { DataSource } from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import type { Connection, Model } from 'mongoose';
 import { Navigation } from '../model/navigation/navigation.entity.js';
 import { Role } from '../model/role/role.entity.js';
 import { RoleNavigation } from '../model/role-navigation/role-navigation.entity.js';
 
-export async function seedNavigation(dataSource: DataSource) {
-  const repository = dataSource.getRepository(Navigation);
-  const roleRepo = dataSource.getRepository(Role);
-  const roleNavRepo = dataSource.getRepository(RoleNavigation);
+export async function seedNavigation(connection: Connection) {
+  const navModel = connection.model<Navigation>(Navigation.name) as Model<Navigation>;
+  const roleModel = connection.model<Role>(Role.name) as Model<Role>;
+  const roleNavModel = connection.model<RoleNavigation>(RoleNavigation.name) as Model<RoleNavigation>;
 
   // Helper: tìm theo code, nếu chưa có thì tạo mới
   const createIfNotExists = async (
     data: Partial<Navigation>,
   ): Promise<Navigation> => {
-    const existing = await repository.findOneBy({
-      code: data.code!,
-    });
+    const existing = await navModel.findOne({ code: data.code! }).exec();
 
     if (existing) {
       if (data.path !== undefined && existing.path !== data.path) {
         existing.path = data.path;
-        return repository.save(existing);
+        await existing.save();
       }
       return existing;
     }
 
-    return repository.save(repository.create(data));
+    return navModel.create({
+      id: randomUUID(),
+      sortOrder: 0,
+      isVisible: true,
+      isActive: true,
+      ...data,
+    });
   };
 
   // 1. Dashboard (Mục menu đơn)
@@ -171,42 +176,43 @@ export async function seedNavigation(dataSource: DataSource) {
   }
 
   // 6. Gán quyền điều hướng cho role ADMIN nếu chưa có
-  const adminRole = await roleRepo.findOneBy({ name: 'ADMIN' });
+  const adminRole = await roleModel.findOne({ name: 'ADMIN' }).exec();
   if (adminRole) {
     const assignNavToRole = async (nav: Navigation) => {
-      const existingRoleNav = await roleNavRepo.findOneBy({
-        roleId: adminRole.id,
-        navigationId: nav.id,
-      });
+      const existingRoleNav = await roleNavModel
+        .findOne({
+          roleId: adminRole.id,
+          navigationId: nav.id,
+        })
+        .exec();
       if (!existingRoleNav) {
-        await roleNavRepo.save(
-          roleNavRepo.create({
-            roleId: adminRole.id,
-            navigationId: nav.id,
-          }),
-        );
+        await roleNavModel.create({
+          roleId: adminRole.id,
+          navigationId: nav.id,
+          assignedAt: new Date(),
+        });
         console.log(`Assigned ${nav.code} navigation to ADMIN role`);
       }
     };
 
     await assignNavToRole(dashboard);
 
-    const menusNav = await repository.findOneBy({ code: 'SYSTEM_MENUS' });
+    const menusNav = await navModel.findOne({ code: 'SYSTEM_MENUS' }).exec();
     if (menusNav) {
       await assignNavToRole(menusNav);
     }
 
-    const permsNav = await repository.findOneBy({ code: 'SYSTEM_PERMISSIONS' });
+    const permsNav = await navModel.findOne({ code: 'SYSTEM_PERMISSIONS' }).exec();
     if (permsNav) {
       await assignNavToRole(permsNav);
     }
 
-    const navMgmtNav = await repository.findOneBy({ code: 'SYSTEM_NAVIGATION_MANAGEMENT' });
+    const navMgmtNav = await navModel.findOne({ code: 'SYSTEM_NAVIGATION_MANAGEMENT' }).exec();
     if (navMgmtNav) {
       await assignNavToRole(navMgmtNav);
     }
 
-    const permMgmtNav = await repository.findOneBy({ code: 'SYSTEM_PERMISSION_MANAGEMENT' });
+    const permMgmtNav = await navModel.findOne({ code: 'SYSTEM_PERMISSION_MANAGEMENT' }).exec();
     if (permMgmtNav) {
       await assignNavToRole(permMgmtNav);
     }

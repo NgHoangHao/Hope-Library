@@ -1,51 +1,40 @@
-import {
-  Column,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
 import { User } from '../user/user.entity.js';
 
-@Entity('audit_logs')
+@Schema({ collection: 'audit_logs', timestamps: true })
 export class AuditLog extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'uniqueidentifier', nullable: true })
+  @Prop({ type: String, default: null, index: true })
   userId?: string | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 100 })
+  @Prop({ type: String, required: true })
   action: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 100 })
+  @Prop({ type: String, required: true })
   targetResource: string;
 
-  @Column('simple-json', { nullable: true })
+  @Prop({ type: Object, default: null })
   details?: Record<string, unknown> | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 50, nullable: true })
+  @Prop({ type: String, default: null })
   ipAddress?: string | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 500, nullable: true })
+  @Prop({ type: String, default: null })
   userAgent?: string | null;
 
   @AutoMap(() => User)
-  @ManyToOne(() => User, (user) => user.auditLogs, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
-  @JoinColumn({ name: 'userId' })
-  user?: Relation<User> | null;
+  user?: User | null;
 
   constructor(partial?: Partial<AuditLog>) {
     super(partial);
@@ -54,3 +43,5 @@ export class AuditLog extends BaseEntity {
     }
   }
 }
+
+export const AuditLogSchema = SchemaFactory.createForClass(AuditLog);

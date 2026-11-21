@@ -1,16 +1,11 @@
-import {
-  Column,
-  Entity,
-  OneToMany,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
-import { UserRole } from '../user-role/user-role.entity.js';
-import { Loan } from '../loan/loan.entity.js';
-import { Fine } from '../fine/fine.entity.js';
-import { AuditLog } from '../audit-log/audit-log.entity.js';
+import type { UserRole } from '../user-role/user-role.entity.js';
+import type { Loan } from '../loan/loan.entity.js';
+import type { Fine } from '../fine/fine.entity.js';
+import type { AuditLog } from '../audit-log/audit-log.entity.js';
 
 export enum UserStatus {
   ACTIVE = 'ACTIVE',
@@ -18,37 +13,37 @@ export enum UserStatus {
   LOCKED = 'LOCKED',
 }
 
-@Entity('users')
+@Schema({ collection: 'users', timestamps: true })
 export class User extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 50, unique: true, nullable: false })
+  @Prop({ type: String, required: true, unique: true })
   code: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 100, unique: true })
+  @Prop({ type: String, required: true, unique: true })
   username: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255, unique: true })
+  @Prop({ type: String, required: true, unique: true })
   email: string;
 
-  @Column({ type: 'nvarchar', length: 255 })
+  @Prop({ type: String, required: true })
   passwordHash: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255, nullable: true })
+  @Prop({ type: String, default: null })
   fullName: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 50, nullable: true })
+  @Prop({ type: String, default: null })
   phone?: string | null;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 500, nullable: true })
+  @Prop({ type: String, default: null })
   avartarUrl?: string | null;
 
   get avatarUrl(): string | null | undefined {
@@ -60,24 +55,13 @@ export class User extends BaseEntity {
   }
 
   @AutoMap(() => String)
-  @Column({
-    type: 'nvarchar',
-    length: 20,
-    default: UserStatus.ACTIVE,
-  })
+  @Prop({ type: String, enum: UserStatus, default: UserStatus.ACTIVE })
   status: UserStatus;
 
-  @OneToMany(() => UserRole, (userRole) => userRole.user)
-  userRoles?: Relation<UserRole>[];
-
-  @OneToMany(() => Loan, (loan) => loan.user)
-  loans?: Relation<Loan>[];
-
-  @OneToMany(() => Fine, (fine) => fine.user)
-  fines?: Relation<Fine>[];
-
-  @OneToMany(() => AuditLog, (auditLog) => auditLog.user)
-  auditLogs?: Relation<AuditLog>[];
+  userRoles?: UserRole[];
+  loans?: Loan[];
+  fines?: Fine[];
+  auditLogs?: AuditLog[];
 
   constructor(partial?: Partial<User>) {
     super(partial);
@@ -86,3 +70,5 @@ export class User extends BaseEntity {
     }
   }
 }
+
+export const UserSchema = SchemaFactory.createForClass(User);

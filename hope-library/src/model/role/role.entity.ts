@@ -1,38 +1,28 @@
-import {
-  Column,
-  Entity,
-  OneToMany,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
-import { UserRole } from '../user-role/user-role.entity.js';
-import { RolePermission } from '../role-permission/role-permission.entity.js';
-import { RoleNavigation } from '../role-navigation/role-navigation.entity.js';
+import type { UserRole } from '../user-role/user-role.entity.js';
+import type { RolePermission } from '../role-permission/role-permission.entity.js';
+import type { RoleNavigation } from '../role-navigation/role-navigation.entity.js';
 
-@Entity('roles')
+@Schema({ collection: 'roles', timestamps: true })
 export class Role extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 100, unique: true })
+  @Prop({ type: String, required: true, unique: true })
   name: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255, nullable: true })
+  @Prop({ type: String, default: null })
   description?: string | null;
 
-  @OneToMany(() => UserRole, (userRole) => userRole.role)
-  userRoles?: Relation<UserRole>[];
-
-  @OneToMany(() => RolePermission, (rolePermission) => rolePermission.role)
-  rolePermissions?: Relation<RolePermission>[];
-
-  @OneToMany(() => RoleNavigation, (roleNavigation) => roleNavigation.role)
-  roleNavigations?: Relation<RoleNavigation>[];
+  userRoles?: UserRole[];
+  rolePermissions?: RolePermission[];
+  roleNavigations?: RoleNavigation[];
 
   constructor(partial?: Partial<Role>) {
     super(partial);
@@ -41,3 +31,5 @@ export class Role extends BaseEntity {
     }
   }
 }
+
+export const RoleSchema = SchemaFactory.createForClass(Role);

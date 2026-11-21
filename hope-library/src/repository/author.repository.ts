@@ -1,42 +1,72 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectModel } from '@nestjs/mongoose';
+import type { Model } from 'mongoose';
 import { Author } from '../model/author/author.entity.js';
+import { Book } from '../model/book/book.entity.js';
+import {
+  prepareDocumentForSave,
+  toEntities,
+  toEntity,
+} from '../database/mongo.helper.js';
 
 @Injectable()
 export class AuthorRepository {
   constructor(
-    @InjectRepository(Author)
-    private readonly authorRepo: Repository<Author>,
+    @InjectModel(Author.name)
+    private readonly authorModel: Model<Author>,
+    @InjectModel(Book.name)
+    private readonly bookModel: Model<Book>,
   ) {}
 
   async findAll(): Promise<Author[]> {
-    return this.authorRepo.find({
-      order: { createdAt: 'DESC' },
-    });
+    const docs = await this.authorModel
+      .find()
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+    return toEntities(Author, docs);
   }
 
   async findById(id: string): Promise<Author | null> {
-    return this.authorRepo.findOne({ where: { id } });
+    const doc = await this.authorModel.findOne({ id }).lean().exec();
+    return toEntity(Author, doc);
   }
 
   async findByIdWithBooks(id: string): Promise<Author | null> {
-    return this.authorRepo.findOne({
-      where: { id },
-      relations: { books: true },
-    });
+    const doc = await this.authorModel.findOne({ id }).lean().exec();
+    const author = toEntity(Author, doc);
+    if (!author) {
+      return null;
+    }
+    const bookDocs = await this.bookModel
+      .find({ authorId: author.id })
+      .lean()
+      .exec();
+    author.books = toEntities(Book, bookDocs);
+    return author;
   }
 
   async findByName(name: string): Promise<Author | null> {
-    return this.authorRepo.findOne({ where: { name } });
+    const doc = await this.authorModel.findOne({ name }).lean().exec();
+    return toEntity(Author, doc);
   }
 
   async save(author: Author): Promise<Author> {
-    return this.authorRepo.save(author);
+    const payload = prepareDocumentForSave(author);
+    const saved = await this.authorModel
+      .findOneAndUpdate(
+        { id: payload.id },
+        { $set: payload },
+        { upsert: true, returnDocument: 'after' },
+      )
+      .lean()
+      .exec();
+    return toEntity(Author, saved) ?? author;
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.authorRepo.delete(id);
-    return (result.affected ?? 0) > 0;
+    await this.bookModel.updateMany({ authorId: id }, { $set: { authorId: null } }).exec();
+    const result = await this.authorModel.deleteOne({ id }).exec();
+    return (result.deletedCount ?? 0) > 0;
   }
 }

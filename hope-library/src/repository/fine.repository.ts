@@ -1,20 +1,34 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectModel } from '@nestjs/mongoose';
+import type { Model } from 'mongoose';
 import { Fine } from '../model/fine/fine.entity.js';
+import {
+  prepareDocumentForSave,
+  toEntity,
+} from '../database/mongo.helper.js';
 
 @Injectable()
 export class FineRepository {
   constructor(
-    @InjectRepository(Fine)
-    private readonly fineRepo: Repository<Fine>,
+    @InjectModel(Fine.name)
+    private readonly fineModel: Model<Fine>,
   ) {}
 
   async findById(id: string): Promise<Fine | null> {
-    return this.fineRepo.findOne({ where: { id } });
+    const doc = await this.fineModel.findOne({ id }).lean().exec();
+    return toEntity(Fine, doc);
   }
 
   async save(fine: Fine): Promise<Fine> {
-    return this.fineRepo.save(fine);
+    const payload = prepareDocumentForSave(fine);
+    const saved = await this.fineModel
+      .findOneAndUpdate(
+        { id: payload.id },
+        { $set: payload },
+        { upsert: true, returnDocument: 'after' },
+      )
+      .lean()
+      .exec();
+    return toEntity(Fine, saved) ?? fine;
   }
 }

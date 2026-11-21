@@ -1,39 +1,25 @@
 import { AutoMap } from '@automapper/classes';
-import {
-  CreateDateColumn,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  PrimaryColumn,
-  type Relation,
-} from 'typeorm';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { BaseEntity } from '../base.entity.js';
-import { Role } from '../role/role.entity.js';
-import { Navigation } from '../navigation/navigation.entity.js';
+import type { Role } from '../role/role.entity.js';
+import type { Navigation } from '../navigation/navigation.entity.js';
 
-@Entity('role_navigations')
+@Schema({ collection: 'role_navigations', timestamps: true })
 export class RoleNavigation extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Prop({ type: String, required: true, index: true })
   roleId: string;
 
   @AutoMap(() => String)
-  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Prop({ type: String, required: true, index: true })
   navigationId: string;
 
   @AutoMap(() => Date)
-  @CreateDateColumn({ type: 'datetime2' })
+  @Prop({ type: Date, default: () => new Date() })
   assignedAt: Date;
 
-  @ManyToOne(() => Role, (role) => role.roleNavigations, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'roleId' })
-  role?: Relation<Role>;
-
-  @ManyToOne(() => Navigation, (nav) => nav.roleNavigations, {
-    onDelete: 'CASCADE',
-  })
-  @JoinColumn({ name: 'navigationId' })
-  navigation?: Relation<Navigation>;
+  role?: Role;
+  navigation?: Navigation;
 
   constructor(partial?: Partial<RoleNavigation>) {
     super(partial);
@@ -43,3 +29,6 @@ export class RoleNavigation extends BaseEntity {
     }
   }
 }
+
+export const RoleNavigationSchema = SchemaFactory.createForClass(RoleNavigation);
+RoleNavigationSchema.index({ roleId: 1, navigationId: 1 }, { unique: true });

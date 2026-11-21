@@ -1,22 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
-import * as fs from 'node:fs';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
 import { AppException } from '../common/index.js';
 
-export const ALLOWED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg','image/webp'];
-export const ALLOWED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg','.webp'];
-
-/**
- * Lấy thư mục upload nằm trên cùng ổ đĩa chứa source code project (mặc định E:\hope-library-uploads)
- */
-export function getUploadDirectory(): string {
-  if (process.env.UPLOAD_DIR) {
-    return path.resolve(process.env.UPLOAD_DIR);
-  }
-  const rootDrive = path.parse(process.cwd()).root; // "E:\" trên Windows
-  return path.join(rootDrive, 'hope-library-uploads');
-}
+export const ALLOWED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+export const ALLOWED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
 
 export interface SaveImageResult {
   fileName: string;
@@ -27,25 +17,94 @@ export interface SaveImageResult {
 @Injectable()
 export class FileStorageService {
   private readonly logger = new Logger(FileStorageService.name);
-  private readonly uploadRootDir: string;
+  private isConfigured = false;
+  private readonly rootFolder: string;
 
-  constructor() {
-    this.uploadRootDir = getUploadDirectory();
-    this.ensureDirectoryExists(this.uploadRootDir);
+  constructor(@Optional() private readonly configService?: ConfigService) {
+    this.rootFolder = (
+      this.getEnv('CLOUDINARY_FOLDER') || 'hope-library'
+    ).replace(/^\/+|\/+$/g, '');
+    this.configureCloudinary();
+  }
+
+  private getEnv(key: string): string | undefined {
+    const val = this.configService?.get<string>(key) ?? process.env[key];
+    return typeof val === 'string' ? val.trim() : undefined;
   }
 
   /**
-   * Đảm bảo thư mục lưu trữ tồn tại
+   * Cấu hình Cloudinary SDK từ biến môi trường:
+   * - Hỗ trợ CLOUDINARY_URL (cloudinary://<api_key>:<api_secret>@<cloud_name>)
+   * - Hoặc bộ 3 biến CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
    */
-  private ensureDirectoryExists(dirPath: string): void {
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
-      this.logger.log(`Đã khởi tạo thư mục lưu trữ file tại: ${dirPath}`);
+  private configureCloudinary(): boolean {
+    if (this.isConfigured) {
+      return true;
+    }
+
+    const cloudinaryUrl = this.getEnv('CLOUDINARY_URL');
+    const cloudName = this.getEnv('CLOUDINARY_CLOUD_NAME');
+    const apiKey = this.getEnv('CLOUDINARY_API_KEY');
+    const apiSecret = this.getEnv('CLOUDINARY_API_SECRET');
+
+    if (cloudinaryUrl) {
+      try {
+        const parsed = new URL(cloudinaryUrl);
+        const parsedCloudName = parsed.hostname;
+        const parsedApiKey = decodeURIComponent(parsed.username);
+        const parsedApiSecret = decodeURIComponent(parsed.password);
+
+        if (
+          parsed.protocol === 'cloudinary:' &&
+          parsedCloudName &&
+          parsedApiKey &&
+          parsedApiSecret
+        ) {
+          cloudinary.config({
+            cloud_name: parsedCloudName,
+            api_key: parsedApiKey,
+            api_secret: parsedApiSecret,
+            secure: true,
+          });
+          this.isConfigured = true;
+          return true;
+        }
+        this.logger.error(
+          'CLOUDINARY_URL không đúng định dạng (yêu cầu: cloudinary://<api_key>:<api_secret>@<cloud_name>)',
+        );
+      } catch {
+        this.logger.error(
+          'Không thể phân tích CLOUDINARY_URL (yêu cầu: cloudinary://<api_key>:<api_secret>@<cloud_name>)',
+        );
+      }
+    }
+
+    if (cloudName && apiKey && apiSecret) {
+      cloudinary.config({
+        cloud_name: cloudName,
+        api_key: apiKey,
+        api_secret: apiSecret,
+        secure: true,
+      });
+      this.isConfigured = true;
+      return true;
+    }
+
+    return false;
+  }
+
+  private ensureConfigured(): void {
+    if (!this.configureCloudinary()) {
+      throw AppException.internal(
+        'Chưa cấu hình Cloudinary (thiếu CLOUDINARY_URL hoặc CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET)',
+        null,
+        'CLOUDINARY_CONFIG_MISSING',
+      );
     }
   }
 
   /**
-   * Kiểm tra định dạng file ảnh (chỉ cho phép png, jpg/jpeg)
+   * Kiểm tra định dạng file ảnh (chỉ cho phép png, jpg/jpeg, webp)
    */
   validateImageFile(file?: Express.Multer.File): void {
     if (!file) {
@@ -62,9 +121,9 @@ export class FileStorageService {
 
     if (!isMimeValid || !isExtValid) {
       throw AppException.badRequest(
-        'Chỉ cho phép tải lên file ảnh định dạng PNG hoặc JPG (JPEG)',
+        'Chỉ cho phép tải lên file ảnh định dạng PNG, JPG (JPEG) hoặc WEBP',
         {
-          allowedExtensions: ['png', 'jpg', 'jpeg'],
+          allowedExtensions: ['png', 'jpg', 'jpeg', 'webp'],
           receivedExtension: ext,
           receivedMimetype: file.mimetype,
         },
@@ -74,73 +133,149 @@ export class FileStorageService {
   }
 
   /**
-   * Lưu file ảnh vào thư mục trên cùng ổ đĩa chứa project và chuyển đổi thành URL
+   * Trích xuất Cloudinary public_id từ URL hoặc public_id trực tiếp.
+   * Trả về null nếu là đường dẫn local cũ (/uploads/...) hoặc URL ngoài không phải Cloudinary.
+   */
+  extractPublicId(fileUrlOrPath?: string | null): string | null {
+    if (!fileUrlOrPath || !fileUrlOrPath.trim()) {
+      return null;
+    }
+
+    const trimmed = fileUrlOrPath.trim();
+
+    // Đường dẫn local cũ (từ trước khi chuyển lên cloud) -> bỏ qua an toàn
+    if (trimmed.startsWith('/uploads/') || trimmed.startsWith('uploads/')) {
+      return null;
+    }
+
+    // Nếu là URL đầy đủ
+    if (/^https?:\/\//i.test(trimmed)) {
+      if (!/res\.cloudinary\.com/i.test(trimmed)) {
+        return null;
+      }
+
+      // Định dạng chuẩn: https://res.cloudinary.com/<cloud>/image/upload/[transforms/][v123456/]<public_id>.<ext>
+      const uploadMarker = '/upload/';
+      const idx = trimmed.indexOf(uploadMarker);
+      if (idx === -1) {
+        return null;
+      }
+
+      let afterUpload = trimmed.slice(idx + uploadMarker.length).split('?')[0];
+      // Bỏ phần version v123456789/ nếu có (và bất kỳ transformation segment nào đứng trước version)
+      const versionMatch = afterUpload.match(/(?:^|\/)v\d+\/(.+)$/);
+      if (versionMatch) {
+        afterUpload = versionMatch[1];
+      }
+
+      // Bỏ phần đuôi mở rộng (.png, .jpg, .webp, ...)
+      const withoutExt = afterUpload.replace(/\.[^./]+$/, '');
+      return withoutExt || null;
+    }
+
+    // Trường hợp truyền trực tiếp public_id (ví dụ uploadResult.filePath khi rollback)
+    return trimmed.replace(/^\/+/, '').replace(/\.[^./]+$/, '') || null;
+  }
+
+  /**
+   * Tải file ảnh lên Cloudinary và trả về HTTPS URL + public_id
    * @param file File tải lên từ request (Express.Multer.File)
-   * @param subFolder Thư mục con (mặc định 'books')
+   * @param subFolder Thư mục con trên Cloudinary (mặc định 'books', ví dụ 'books' | 'avatars')
    */
   async saveImage(
     file: Express.Multer.File,
     subFolder = 'books',
   ): Promise<SaveImageResult> {
     this.validateImageFile(file);
-
-    const targetDir = path.join(this.uploadRootDir, subFolder);
-    this.ensureDirectoryExists(targetDir);
+    this.ensureConfigured();
 
     const ext = path.extname(file.originalname).toLowerCase();
-    const uniqueFileName = `${Date.now()}-${randomUUID()}${ext}`;
-    const destinationPath = path.join(targetDir, uniqueFileName);
+    const baseName = `${Date.now()}-${randomUUID()}`;
+    const uniqueFileName = `${baseName}${ext}`;
+    const cleanSubFolder = subFolder.replace(/^\/+|\/+$/g, '');
+    const folder = cleanSubFolder
+      ? `${this.rootFolder}/${cleanSubFolder}`
+      : this.rootFolder;
 
     try {
-      await fs.promises.writeFile(destinationPath, file.buffer);
+      const uploadResult = await new Promise<UploadApiResponse>((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder,
+            public_id: baseName,
+            resource_type: 'image',
+            overwrite: false,
+          },
+          (error, result) => {
+            if (error || !result) {
+              reject(error ?? new Error('Không nhận được phản hồi từ Cloudinary'));
+              return;
+            }
+            resolve(result);
+          },
+        );
+        uploadStream.end(file.buffer);
+      });
+
+      this.logger.log(`Đã tải ảnh lên Cloudinary thành công: ${uploadResult.public_id}`);
+
+      return {
+        fileName: uniqueFileName,
+        filePath: uploadResult.public_id,
+        fileUrl: uploadResult.secure_url,
+      };
     } catch (error) {
-      this.logger.error(`Lỗi khi ghi file ảnh vào đĩa: ${(error as Error).message}`);
+      if (error instanceof AppException) {
+        throw error;
+      }
+      this.logger.error(`Lỗi khi tải ảnh lên Cloudinary: ${(error as Error).message}`);
       throw AppException.internal(
-        'Không thể lưu file ảnh vào hệ thống lưu trữ',
+        'Không thể tải file ảnh lên hệ thống lưu trữ đám mây',
         { error: (error as Error).message },
         'FILE_WRITE_ERROR',
       );
     }
-
-    // Chuyển đổi thành URL dạng /uploads/books/{fileName}
-    const fileUrl = `/uploads/${subFolder}/${uniqueFileName}`;
-
-    return {
-      fileName: uniqueFileName,
-      filePath: destinationPath,
-      fileUrl,
-    };
   }
 
   /**
-   * Xóa file ảnh dựa trên URL hoặc đường dẫn tuyệt đối
-   * @param fileUrlOrPath URL (ví dụ /uploads/books/xyz.png) hoặc đường dẫn file trên ổ đĩa
+   * Xóa file ảnh trên Cloudinary dựa trên URL hoặc public_id
+   * @param fileUrlOrPath Cloudinary URL hoặc public_id
    */
   async deleteFile(fileUrlOrPath?: string | null): Promise<boolean> {
-    if (!fileUrlOrPath || !fileUrlOrPath.trim()) {
+    const publicId = this.extractPublicId(fileUrlOrPath);
+    if (!publicId) {
       return false;
     }
 
-    let absolutePath = fileUrlOrPath.trim();
-
-    // Nếu truyền vào fileUrl dạng /uploads/...
-    if (absolutePath.startsWith('/uploads/') || absolutePath.startsWith('uploads/')) {
-      const relativePart = absolutePath.replace(/^\/?uploads\//, '');
-      absolutePath = path.join(this.uploadRootDir, relativePart);
+    if (!this.configureCloudinary()) {
+      this.logger.warn(
+        `Bỏ qua xóa ảnh (${publicId}) vì chưa cấu hình Cloudinary trong biến môi trường`,
+      );
+      return false;
     }
 
     try {
-      if (fs.existsSync(absolutePath)) {
-        await fs.promises.unlink(absolutePath);
-        this.logger.log(`Đã xóa file thành công: ${absolutePath}`);
+      const response = await cloudinary.uploader.destroy(publicId, {
+        resource_type: 'image',
+      });
+
+      if (response?.result === 'ok') {
+        this.logger.log(`Đã xóa ảnh trên Cloudinary thành công: ${publicId}`);
         return true;
       }
+
+      if (response?.result === 'not found') {
+        return false;
+      }
+
       return false;
     } catch (error) {
-      this.logger.error(`Lỗi khi xóa file ảnh (${absolutePath}): ${(error as Error).message}`);
+      this.logger.error(
+        `Lỗi khi xóa file ảnh trên Cloudinary (${publicId}): ${(error as Error).message}`,
+      );
       throw AppException.internal(
-        'Lỗi khi xóa file ảnh khỏi ổ đĩa',
-        { path: absolutePath, error: (error as Error).message },
+        'Lỗi khi xóa file ảnh khỏi hệ thống lưu trữ đám mây',
+        { publicId, error: (error as Error).message },
         'FILE_DELETE_ERROR',
       );
     }

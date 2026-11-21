@@ -1,31 +1,25 @@
-import {
-  Column,
-  Entity,
-  OneToMany,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
-import { Book } from '../book/book.entity.js';
+import type { Book } from '../book/book.entity.js';
 
-@Entity('categories')
+@Schema({ collection: 'categories', timestamps: true })
 export class Category extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 255, unique: true })
+  @Prop({ type: String, required: true, unique: true })
   name: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 500, nullable: true })
+  @Prop({ type: String, default: null })
   description?: string | null;
 
-  @AutoMap(() => [Book])
-  @OneToMany(() => Book, (book) => book.category)
-  books?: Relation<Book>[];
+  @AutoMap(() => [Object])
+  books?: Book[];
 
   constructor(partial?: Partial<Category>) {
     super(partial);
@@ -34,3 +28,5 @@ export class Category extends BaseEntity {
     }
   }
 }
+
+export const CategorySchema = SchemaFactory.createForClass(Category);

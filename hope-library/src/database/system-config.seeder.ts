@@ -1,10 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule, getConnectionToken } from '@nestjs/mongoose';
 import { NestFactory } from '@nestjs/core';
-import { DataSource } from 'typeorm';
+import type { Connection, Model } from 'mongoose';
 
-import { entities } from '../model/index.js';
+import { mongooseModels } from '../model/index.js';
+import { getMongoConnectionOptions } from './mongo.config.js';
 import {
   SystemConfig,
   SystemConfigValueType,
@@ -78,8 +80,8 @@ export const DEFAULT_SYSTEM_CONFIGS: SystemConfigSeedItem[] = [
  * Hàm seed các bản ghi cấu hình hệ thống (SystemConfig).
  * Idempotent: chỉ thêm mới nếu key chưa tồn tại, không ghi đè giá trị quản trị viên đã chỉnh sửa.
  */
-export async function seedSystemConfig(dataSource: DataSource): Promise<void> {
-  const configRepo = dataSource.getRepository(SystemConfig);
+export async function seedSystemConfig(connection: Connection): Promise<void> {
+  const configModel = connection.model<SystemConfig>(SystemConfig.name) as Model<SystemConfig>;
 
   console.log('--- Bắt đầu khởi tạo cấu hình hệ thống (System Configs) ---');
 
@@ -87,7 +89,7 @@ export async function seedSystemConfig(dataSource: DataSource): Promise<void> {
   let skippedCount = 0;
 
   for (const item of DEFAULT_SYSTEM_CONFIGS) {
-    const existing = await configRepo.findOneBy({ key: item.key });
+    const existing = await configModel.findOne({ key: item.key }).exec();
 
     if (existing) {
       skippedCount++;
@@ -97,7 +99,8 @@ export async function seedSystemConfig(dataSource: DataSource): Promise<void> {
       continue;
     }
 
-    const entity = configRepo.create({
+    await configModel.create({
+      id: randomUUID(),
       key: item.key,
       value: item.value,
       valueType: item.valueType,
@@ -105,8 +108,6 @@ export async function seedSystemConfig(dataSource: DataSource): Promise<void> {
       description: item.description,
       isPublic: item.isPublic,
     });
-
-    await configRepo.save(entity);
     createdCount++;
     console.log(
       `[OK] Đã tạo cấu hình "${item.key}" = ${item.value} (${item.valueType})`,
@@ -124,24 +125,11 @@ export async function seedSystemConfig(dataSource: DataSource): Promise<void> {
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    TypeOrmModule.forRootAsync({
+    MongooseModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'mssql' as const,
-        host: config.get<string>('DB_HOST'),
-        port: Number(config.get<string>('DB_PORT', '1433')),
-        username: config.get<string>('DB_USERNAME'),
-        password: config.get<string>('DB_PASSWORD'),
-        database: config.get<string>('DB_DATABASE'),
-        entities,
-        autoLoadEntities: true,
-        synchronize: false,
-        options: {
-          encrypt: false,
-          trustServerCertificate: true,
-        },
-      }),
+      useFactory: (config: ConfigService) => getMongoConnectionOptions(config),
     }),
+    MongooseModule.forFeature(mongooseModels),
   ],
 })
 class StandaloneSystemConfigSeedModule {}
@@ -152,8 +140,8 @@ async function bootstrap(): Promise<void> {
   );
 
   try {
-    const dataSource = app.get(DataSource);
-    await seedSystemConfig(dataSource);
+    const connection = app.get<Connection>(getConnectionToken());
+    await seedSystemConfig(connection);
     console.log('Script system-config seeder hoàn thành thành công!');
   } catch (error) {
     console.error('Lỗi khi thực thi system-config seeder:', error);

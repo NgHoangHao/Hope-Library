@@ -1,10 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { MongooseModule, getConnectionToken } from '@nestjs/mongoose';
 import { NestFactory } from '@nestjs/core';
-import { DataSource } from 'typeorm';
+import type { Connection, Model } from 'mongoose';
 
-import { entities } from '../model/index.js';
+import { mongooseModels } from '../model/index.js';
+import { getMongoConnectionOptions } from './mongo.config.js';
 import { Navigation } from '../model/navigation/navigation.entity.js';
 import { Role } from '../model/role/role.entity.js';
 import { RoleNavigation } from '../model/role-navigation/role-navigation.entity.js';
@@ -15,14 +17,13 @@ import { RoleNavigation } from '../model/role-navigation/role-navigation.entity.
  * 2. Permission Management (/system/permission-management) - sortOrder: 4
  * Đồng thời tự động phân quyền điều hướng cho vai trò ADMIN.
  */
-export async function seedSystemManagementNavigation(dataSource: DataSource) {
-  const navRepo = dataSource.getRepository(Navigation);
-  const roleRepo = dataSource.getRepository(Role);
-  const roleNavRepo = dataSource.getRepository(RoleNavigation);
+export async function seedSystemManagementNavigation(connection: Connection) {
+  const navModel = connection.model<Navigation>(Navigation.name) as Model<Navigation>;
+  const roleModel = connection.model<Role>(Role.name) as Model<Role>;
+  const roleNavModel = connection.model<RoleNavigation>(RoleNavigation.name) as Model<RoleNavigation>;
 
-  // Helper tìm theo code hoặc tạo mới, đồng thời cập nhật đúng path, parentId, sortOrder nếu đã có
   const createOrUpdateNavigation = async (data: Partial<Navigation>): Promise<Navigation> => {
-    const existing = await navRepo.findOneBy({ code: data.code! });
+    const existing = await navModel.findOne({ code: data.code! }).exec();
     if (existing) {
       let needsUpdate = false;
 
@@ -56,17 +57,22 @@ export async function seedSystemManagementNavigation(dataSource: DataSource) {
       }
 
       if (needsUpdate) {
-        return navRepo.save(existing);
+        await existing.save();
       }
       return existing;
     }
 
-    return navRepo.save(navRepo.create(data));
+    return navModel.create({
+      id: randomUUID(),
+      sortOrder: 0,
+      isVisible: true,
+      isActive: true,
+      ...data,
+    });
   };
 
   console.log('--- Bắt đầu khởi tạo điều hướng Navigation Management & Permission Management ---');
 
-  // 1. Kiểm tra hoặc khởi tạo nhóm menu cha SYSTEM
   const systemParent = await createOrUpdateNavigation({
     code: 'SYSTEM',
     name: 'System',
@@ -79,7 +85,6 @@ export async function seedSystemManagementNavigation(dataSource: DataSource) {
   });
   console.log(`[OK] Nhóm menu cha: ${systemParent.name} (Code: ${systemParent.code})`);
 
-  // 2. Tạo menu con: Navigation Management (/system/navigation-management), sortOrder = 3
   const navManagement = await createOrUpdateNavigation({
     code: 'SYSTEM_NAVIGATION_MANAGEMENT',
     name: 'Navigation Management',
@@ -91,10 +96,9 @@ export async function seedSystemManagementNavigation(dataSource: DataSource) {
     isActive: true,
   });
   console.log(
-    `[OK] Menu điều hướng: ${navManagement.name} -> Path: ${navManagement.path} (sortOrder: ${navManagement.sortOrder})`
+    `[OK] Menu điều hướng: ${navManagement.name} -> Path: ${navManagement.path} (sortOrder: ${navManagement.sortOrder})`,
   );
 
-  // 3. Tạo menu con: Permission Management (/system/permission-management), sortOrder = 4
   const permManagement = await createOrUpdateNavigation({
     code: 'SYSTEM_PERMISSION_MANAGEMENT',
     name: 'Permission Management',
@@ -106,31 +110,30 @@ export async function seedSystemManagementNavigation(dataSource: DataSource) {
     isActive: true,
   });
   console.log(
-    `[OK] Menu điều hướng: ${permManagement.name} -> Path: ${permManagement.path} (sortOrder: ${permManagement.sortOrder})`
+    `[OK] Menu điều hướng: ${permManagement.name} -> Path: ${permManagement.path} (sortOrder: ${permManagement.sortOrder})`,
   );
 
-  // 4. Tìm vai trò ADMIN để gán quyền điều hướng
-  const adminRole = await roleRepo.findOneBy({ name: 'ADMIN' });
+  const adminRole = await roleModel.findOne({ name: 'ADMIN' }).exec();
   if (!adminRole) {
     console.warn('[CẢNH BÁO] Không tìm thấy vai trò ADMIN trong cơ sở dữ liệu. Bỏ qua bước gán quyền điều hướng.');
     return;
   }
 
-  // 5. Gán 2 navigation này cho vai trò ADMIN
   const navigationsToAssign = [navManagement, permManagement];
   for (const nav of navigationsToAssign) {
-    const existingRoleNav = await roleNavRepo.findOneBy({
-      roleId: adminRole.id,
-      navigationId: nav.id,
-    });
+    const existingRoleNav = await roleNavModel
+      .findOne({
+        roleId: adminRole.id,
+        navigationId: nav.id,
+      })
+      .exec();
 
     if (!existingRoleNav) {
-      await roleNavRepo.save(
-        roleNavRepo.create({
-          roleId: adminRole.id,
-          navigationId: nav.id,
-        })
-      );
+      await roleNavModel.create({
+        roleId: adminRole.id,
+        navigationId: nav.id,
+        assignedAt: new Date(),
+      });
       console.log(`[OK] Đã gán thành công menu "${nav.name}" (${nav.path}) cho vai trò ADMIN`);
     } else {
       console.log(`[INFO] Menu "${nav.name}" (${nav.path}) đã được gán cho ADMIN từ trước`);
@@ -146,24 +149,11 @@ export async function seedSystemManagementNavigation(dataSource: DataSource) {
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    TypeOrmModule.forRootAsync({
+    MongooseModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'mssql' as const,
-        host: config.get<string>('DB_HOST'),
-        port: Number(config.get<string>('DB_PORT', '1433')),
-        username: config.get<string>('DB_USERNAME'),
-        password: config.get<string>('DB_PASSWORD'),
-        database: config.get<string>('DB_DATABASE'),
-        entities,
-        autoLoadEntities: true,
-        synchronize: false,
-        options: {
-          encrypt: false,
-          trustServerCertificate: true,
-        },
-      }),
+      useFactory: (config: ConfigService) => getMongoConnectionOptions(config),
     }),
+    MongooseModule.forFeature(mongooseModels),
   ],
 })
 class StandaloneSeedModule {}
@@ -172,8 +162,8 @@ async function bootstrap() {
   const app = await NestFactory.createApplicationContext(StandaloneSeedModule);
 
   try {
-    const dataSource = app.get(DataSource);
-    await seedSystemManagementNavigation(dataSource);
+    const connection = app.get<Connection>(getConnectionToken());
+    await seedSystemManagementNavigation(connection);
     console.log('Script seeder hoàn thành thành công!');
   } catch (error) {
     console.error('Lỗi khi thực thi seeder:', error);
@@ -183,7 +173,6 @@ async function bootstrap() {
   }
 }
 
-// Nếu file được gọi trực tiếp bằng Node/tsx
 if (process.argv[1]?.includes('system-management-navigation.seeder')) {
   void bootstrap();
 }

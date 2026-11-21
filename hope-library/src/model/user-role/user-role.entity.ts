@@ -1,37 +1,24 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  PrimaryColumn,
-  type Relation,
-} from 'typeorm';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { BaseEntity } from '../base.entity.js';
-import { User } from '../user/user.entity.js';
-import { Role } from '../role/role.entity.js';
+import type { User } from '../user/user.entity.js';
+import type { Role } from '../role/role.entity.js';
 
-@Entity('user_roles')
+@Schema({ collection: 'user_roles', timestamps: true })
 export class UserRole extends BaseEntity {
-  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Prop({ type: String, required: true, index: true })
   userId: string;
 
-  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Prop({ type: String, required: true, index: true })
   roleId: string;
 
-  @CreateDateColumn({ type: 'datetime2' })
+  @Prop({ type: Date, default: () => new Date() })
   assignedAt: Date;
 
-  @Column({ type: 'nvarchar', length: 100, nullable: true })
+  @Prop({ type: String, default: null })
   assignedBy?: string | null;
 
-  @ManyToOne(() => User, (user) => user.userRoles, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'userId' })
-  user?: Relation<User>;
-
-  @ManyToOne(() => Role, (role) => role.userRoles, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'roleId' })
-  role?: Relation<Role>;
+  user?: User;
+  role?: Role;
 
   constructor(partial?: Partial<UserRole>) {
     super(partial);
@@ -41,3 +28,6 @@ export class UserRole extends BaseEntity {
     }
   }
 }
+
+export const UserRoleSchema = SchemaFactory.createForClass(UserRole);
+UserRoleSchema.index({ userId: 1, roleId: 1 }, { unique: true });

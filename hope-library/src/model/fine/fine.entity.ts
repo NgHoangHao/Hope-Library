@@ -1,15 +1,9 @@
-import {
-  Column,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  PrimaryGeneratedColumn,
-  type Relation,
-} from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { AutoMap } from '@automapper/classes';
 import { BaseEntity } from '../base.entity.js';
-import { User } from '../user/user.entity.js';
-import { Loan } from '../loan/loan.entity.js';
+import type { User } from '../user/user.entity.js';
+import type { Loan } from '../loan/loan.entity.js';
 
 export enum FineStatus {
   UNPAID = 'UNPAID',
@@ -17,55 +11,38 @@ export enum FineStatus {
   WAIVED = 'WAIVED',
 }
 
-@Entity('fines')
+@Schema({ collection: 'fines', timestamps: true })
 export class Fine extends BaseEntity {
   @AutoMap(() => String)
-  @PrimaryGeneratedColumn('uuid')
+  @Prop({ type: String, required: true, unique: true, index: true, default: () => randomUUID() })
   id: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'uniqueidentifier' })
+  @Prop({ type: String, required: true, index: true })
   userId: string;
 
   @AutoMap(() => String)
-  @Column({ type: 'uniqueidentifier', nullable: true })
+  @Prop({ type: String, default: null, index: true })
   loanId?: string | null;
 
   @AutoMap(() => Number)
-  @Column({
-    type: 'decimal',
-    precision: 12,
-    scale: 2,
-    default: 0,
-  })
+  @Prop({ type: Number, default: 0 })
   amount: number;
 
   @AutoMap(() => String)
-  @Column({ type: 'nvarchar', length: 500 })
+  @Prop({ type: String, required: true })
   reason: string;
 
   @AutoMap(() => String)
-  @Column({
-    type: 'nvarchar',
-    length: 20,
-    default: FineStatus.UNPAID,
-  })
+  @Prop({ type: String, enum: FineStatus, default: FineStatus.UNPAID })
   status: FineStatus;
 
   @AutoMap(() => Date)
-  @Column({ type: 'datetime2', nullable: true })
+  @Prop({ type: Date, default: null })
   paidAt?: Date | null;
 
-  @ManyToOne(() => User, (user) => user.fines, { onDelete: 'NO ACTION' })
-  @JoinColumn({ name: 'userId' })
-  user?: Relation<User>;
-
-  @ManyToOne(() => Loan, (loan) => loan.fines, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
-  @JoinColumn({ name: 'loanId' })
-  loan?: Relation<Loan> | null;
+  user?: User;
+  loan?: Loan | null;
 
   constructor(partial?: Partial<Fine>) {
     super(partial);
@@ -76,3 +53,5 @@ export class Fine extends BaseEntity {
     }
   }
 }
+
+export const FineSchema = SchemaFactory.createForClass(Fine);
