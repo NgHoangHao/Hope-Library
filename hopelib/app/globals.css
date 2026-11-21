@@ -1,0 +1,361 @@
+@import "tailwindcss";
+
+/*
+ * Semantic Design Tokens (adapted from Astryx Theme Token Architecture)
+ * Preserves legacy --background / --foreground / --brand-gold* aliases for backwards compatibility.
+ */
+:root {
+  /* Legacy aliases */
+  --background: #FAF8F5;
+  --foreground: #1A1A1A;
+  --brand-gold: #F5B82E;
+  --brand-gold-hover: #E5A926;
+  --brand-gold-text: #B8860B;
+
+  /* Semantic surfaces (--color-background-<role>) */
+  --color-background-body: #FAF8F5;
+  --color-background-surface: #FFFFFF;
+  --color-background-card: #FFFFFF;
+  --color-background-muted: #F5F5F4;
+
+  /* Semantic text (--color-text-<role>) */
+  --color-text-primary: #1A1A1A;
+  --color-text-secondary: #57534E;
+  --color-text-muted: #78716C;
+
+  /* Semantic borders (--color-border-<role>) */
+  --color-border-subtle: rgba(0, 0, 0, 0.08);
+  --color-border-control: rgba(0, 0, 0, 0.14);
+
+  /* Semantic intents (--color-<intent> & --color-on-<intent>) */
+  --color-accent: #F5B82E;
+  --color-accent-hover: #EAA91D;
+  --color-accent-pressed: #D99714;
+  --color-accent-muted: rgba(245, 184, 46, 0.16);
+  --color-on-accent: #1A1A1A;
+
+  --color-success: #059669;
+  --color-warning: #D97706;
+  --color-error: #E11D48;
+  --color-info: #0284C7;
+
+  /* Focus ring token */
+  --color-focus-ring: #F5B82E;
+
+  /* Radius scale */
+  --radius-container: 1rem;
+  --radius-element: 0.75rem;
+  --radius-inner: 0.5rem;
+
+  /* Spacing scale (UI/UX Pro Max) */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  --space-3xl: 4rem;
+
+  /* Shadow depths (UI/UX Pro Max) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+
+  /* Layout metrics (WCAG 2.2 AA Focus Not Obscured) */
+  --header-height: 4.5rem;
+
+  /* Motion tokens (Astryx + UI/UX Pro Max: deceleration on enter, faster exit) */
+  --motion-duration-press: 120ms;
+  --motion-duration-fast: 150ms;
+  --motion-duration-normal: 200ms;
+  --motion-duration-enter: 240ms;
+  --motion-duration-view: 200ms;
+  --motion-duration-exit: 160ms;
+  --motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-easing-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-easing-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-press: 0.01ms;
+    --motion-duration-fast: 0.01ms;
+    --motion-duration-normal: 0.01ms;
+    --motion-duration-enter: 0.01ms;
+    --motion-duration-view: 0.01ms;
+    --motion-duration-exit: 0.01ms;
+  }
+}
+
+@theme {
+  --font-serif: var(--font-serif), Georgia, Cambria, serif;
+  --font-sans: var(--font-sans), system-ui, sans-serif;
+  --color-background: var(--color-background-body);
+  --color-foreground: var(--color-text-primary);
+  --color-brand-gold: var(--color-accent);
+  --color-brand-gold-hover: var(--color-accent-hover);
+  --color-brand-gold-text: var(--brand-gold-text);
+}
+
+html {
+  scroll-padding-top: var(--header-height);
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-background-body);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+/* Typography Line Balance (UI/UX Pro Max) */
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+/*
+ * Interaction Modality & Focus Ring Contract (Astryx architecture:interaction-modality)
+ * Suppresses accidental keyboard focus rings on pointer-initiated programmatic focus,
+ * while preserving clear WCAG focus indicators for keyboard users.
+ */
+:where(button, a, [role="button"], input, select, textarea):focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+html[data-hopelib-modality="pointer"] :where(button, a, [role="button"]):focus:not(:focus-visible) {
+  outline: none;
+}
+
+/*
+ * Tactile Press Feedback & GPU-Composited UI Transitions
+ * Uses only transform & opacity (zero layout shift), guarded by prefers-reduced-motion.
+ */
+:where(button:not(:disabled), [role="button"]:not([aria-disabled="true"])) {
+  transition-property: transform, background-color, color, border-color, box-shadow, opacity;
+  transition-duration: var(--motion-duration-fast);
+  transition-timing-function: var(--motion-easing-standard);
+}
+
+:where(button:not(:disabled), [role="button"]:not([aria-disabled="true"])):active {
+  transform: scale(0.97);
+}
+
+@keyframes hopelib-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hopelib-view-switch {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hopelib-backdrop-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hopelib-dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hopelib-drawer-enter {
+  from {
+    opacity: 0.85;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hopelib-drawer-right-enter {
+  from {
+    opacity: 0.85;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hopelib-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/*
+ * Use `backwards` (never `forwards`/`both`) so finished animations do NOT retain
+ * a `transform` containing block that would trap `position: fixed` modals/overlays.
+ */
+.ui-page-enter {
+  animation: hopelib-page-enter var(--motion-duration-enter) var(--motion-easing-enter) backwards;
+}
+
+.ui-view-switch {
+  animation: hopelib-view-switch var(--motion-duration-view) var(--motion-easing-enter) backwards;
+}
+
+.ui-backdrop-enter {
+  animation: hopelib-backdrop-enter var(--motion-duration-exit) ease-out backwards;
+}
+
+.ui-dialog-enter {
+  animation: hopelib-dialog-enter var(--motion-duration-enter) var(--motion-easing-enter) backwards;
+}
+
+.ui-drawer-enter {
+  animation: hopelib-drawer-enter var(--motion-duration-enter) var(--motion-easing-enter) backwards;
+}
+
+.ui-drawer-right-enter {
+  animation: hopelib-drawer-right-enter var(--motion-duration-enter) var(--motion-easing-enter) backwards;
+}
+
+.ui-toast-enter {
+  animation: hopelib-toast-enter var(--motion-duration-enter) var(--motion-easing-enter) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(button:not(:disabled), [role="button"]:not([aria-disabled="true"])):active {
+    transform: none;
+  }
+
+  .ui-page-enter,
+  .ui-view-switch,
+  .ui-backdrop-enter,
+  .ui-dialog-enter,
+  .ui-drawer-enter,
+  .ui-drawer-right-enter,
+  .ui-toast-enter {
+    animation: none;
+  }
+}
+
+/* Custom book 3D effect utilities */
+.book-shadow {
+  box-shadow: -15px 25px 35px -5px rgba(0, 0, 0, 0.25), -5px 10px 15px -3px rgba(0, 0, 0, 0.15);
+}
+
+.book-spine-left {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.22) 0%, rgba(255, 255, 255, 0.15) 35%, rgba(0, 0, 0, 0.1) 100%);
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+  pointer-events: none;
+}
+
+/* Landing page editorial animations */
+@keyframes landing-float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes landing-float-delayed {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(9px);
+  }
+}
+
+@keyframes landing-pulse-glow {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes landing-marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-landing-float {
+  animation: landing-float 6s ease-in-out infinite;
+}
+
+.animate-landing-float-delayed {
+  animation: landing-float-delayed 7.2s ease-in-out infinite;
+}
+
+.animate-landing-glow {
+  animation: landing-pulse-glow 8s ease-in-out infinite;
+}
+
+.animate-landing-marquee {
+  display: flex;
+  width: max-content;
+  animation: landing-marquee 28s linear infinite;
+}
+
+.animate-landing-marquee:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-landing-float,
+  .animate-landing-float-delayed,
+  .animate-landing-glow,
+  .animate-landing-marquee {
+    animation: none;
+  }
+}

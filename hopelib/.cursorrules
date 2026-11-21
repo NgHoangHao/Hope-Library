@@ -1,0 +1,30 @@
+# Hope Library UI Coding Rules
+
+Always refer to the project's comprehensive UI architecture guidelines in [UI_RULES.md](file:///e:/Individual-Project/hopelib/UI_RULES.md).
+
+## Core Architecture & Directory Rules:
+1. **app/**: Thin Routing layer only. Route groups: `(landing)`, `(auth)`, `(dashboard)`. Keep `page.tsx` minimal (<60 LOC), composing feature views/components. Do not put business logic or complex state in `page.tsx`.
+2. **components/**: Domain-agnostic shared UI:
+   - `components/ui/`: Atomic primitives (Button, Input, Dialog, Card, Badge)
+   - `components/layouts/`: Shell layouts (Header, Footer, Sidebar, PageContainer)
+   - `components/common/`: Shared compound UI (DataTable, Pagination, EmptyState, ConfirmModal)
+3. **features/**: Feature-first business logic & UI (`auth`, `book`, `author`, `category`, `user`, `role`, `navigation`, `borrowing`). Each feature has:
+   - `components/`: Feature-specific UI
+   - `hooks/`: Feature-specific custom hooks
+   - `services/` or `api/`: Domain data fetching & server actions
+   - `types/`: Domain-specific DTOs & types
+   - `schemas/`: Zod validation schemas
+   - `index.ts`: Barrel export
+4. **lib/**: Utility functions (`cn()` helper combining clsx + tailwind-merge, formatters).
+5. **RSC vs Client Components**:
+   - Default to Server Components for layouts and pages.
+   - Use `'use client'` strictly at leaf components requiring state or event handlers.
+6. **Styling**:
+   - Tailwind CSS v4.
+   - Merge class names with `cn(...)`.
+   - Never use `any` in TypeScript.
+   - Support `className?: string` on reusable UI components.
+   - Handle loading (Skeleton), empty states, errors, disabled states, and mobile-first responsiveness.
+7. **Execution & Dev Server Rules**:
+   - **DO NOT automatically run the dev server** (`npm run dev`, `next dev`, etc.). The user explicitly wants to run the project manually on their machine.
+   - Only run static checks if explicitly needed/requested, never launch background dev servers.
