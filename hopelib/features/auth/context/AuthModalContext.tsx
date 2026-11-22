@@ -2,8 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { AuthUser } from "../types/auth.types";
-import { clearStoredPermissions } from "../utils/permission.helper";
 import { requestLogout } from "../components/LogoutConfirmModal";
+import { SESSION_EXPIRED_EVENT } from "../services/apiClient";
 
 interface AuthModalContextType {
   isLoginOpen: boolean;
@@ -20,13 +20,25 @@ export function AuthModalProvider({ children }: { children: ReactNode }) {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
 
-  // Khôi phục user từ localStorage khi tải trang và kiểm tra query param ?login=true
+  // Đồng bộ user từ localStorage khi mount / khi Next.js Activity khôi phục route cache
   useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem("hope_user");
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
+    const syncUserFromStorage = () => {
+      try {
+        const token = localStorage.getItem("hope_access_token");
+        const storedUser = localStorage.getItem("hope_user");
+        if (token && storedUser) {
+          setUser(JSON.parse(storedUser));
+        } else {
+          setUser(null);
+        }
+      } catch {
+        setUser(null);
       }
+    };
+
+    syncUserFromStorage();
+
+    try {
       if (typeof window !== "undefined") {
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get("login") === "true") {
@@ -34,20 +46,32 @@ export function AuthModalProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch {
-      // Bỏ qua lỗi parsing nếu có
+      // Bỏ qua lỗi đọc query param nếu có
     }
 
-    const handleStorageChange = () => {
-      try {
-        const storedUser = localStorage.getItem("hope_user");
-        setUser(storedUser ? JSON.parse(storedUser) : null);
-      } catch {
+    const handleUserUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<AuthUser | null | undefined>;
+      if (customEvent.detail === null) {
         setUser(null);
+      } else if (customEvent.detail) {
+        setUser(customEvent.detail);
+      } else {
+        syncUserFromStorage();
       }
     };
 
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    const handleSessionExpired = () => {
+      setUser(null);
+    };
+
+    window.addEventListener("storage", syncUserFromStorage);
+    window.addEventListener("hope_user_updated", handleUserUpdated);
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+    return () => {
+      window.removeEventListener("storage", syncUserFromStorage);
+      window.removeEventListener("hope_user_updated", handleUserUpdated);
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+    };
   }, []);
 
   const openLogin = () => setIsLoginOpen(true);

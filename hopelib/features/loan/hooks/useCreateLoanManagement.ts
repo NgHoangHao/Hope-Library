@@ -17,6 +17,7 @@ import {
   BookCopyItem,
 } from "@/features/book";
 import { isSessionExpiredError } from "@/features/auth";
+import { useMaxLoanDays } from "./useMaxLoanDays";
 
 function formatDateInput(date: Date): string {
   const year = date.getFullYear();
@@ -94,13 +95,14 @@ export function useCreateLoanManagement(
     }
   }, [searchParams]);
 
+  // Cấu hình hạn trả sách mặc định (MAX_LOAN_DAYS)
+  const { maxLoanDays, isLoading: isLoadingMaxLoanDays } = useMaxLoanDays();
+
   // Thông tin phiếu mượn
   const [loanDate, setLoanDate] = useState<string>(() =>
     formatDateInput(new Date())
   );
-  const [dueDate, setDueDate] = useState<string>(() =>
-    addDaysToDateString(formatDateInput(new Date()), 14)
-  );
+  const dueDate = addDaysToDateString(loanDate, maxLoanDays);
   const [loanStatus, setLoanStatus] = useState<LoanStatus>("BORROWED");
   const [notes, setNotes] = useState<string>("");
 
@@ -292,16 +294,6 @@ export function useCreateLoanManagement(
   }, []);
 
   /**
-   * Chọn nhanh hạn trả (+7, +14, +21, +30 ngày kể từ ngày mượn)
-   */
-  const handleQuickDueDate = useCallback(
-    (days: number) => {
-      setDueDate(addDaysToDateString(loanDate, days));
-    },
-    [loanDate]
-  );
-
-  /**
    * Gửi yêu cầu POST /loans tạo mới phiếu mượn
    */
   const handleSubmitCreateLoan = useCallback(
@@ -318,28 +310,9 @@ export function useCreateLoanManagement(
         return false;
       }
 
-      if (!dueDate) {
-        setFeedback({
-          type: "error",
-          title: "Thiếu hạn trả sách",
-          message: "Vui lòng chọn hạn trả sách (dueDate).",
-        });
-        return false;
-      }
-
       const loanDateObj = loanDate
         ? new Date(`${loanDate}T00:00:00.000Z`)
         : new Date();
-      const dueDateObj = new Date(`${dueDate}T23:59:59.000Z`);
-
-      if (dueDateObj <= loanDateObj) {
-        setFeedback({
-          type: "error",
-          title: "Hạn trả không hợp lệ",
-          message: "Hạn trả sách phải sau ngày mượn sách.",
-        });
-        return false;
-      }
 
       if (selectedItems.length === 0) {
         setFeedback({
@@ -356,7 +329,6 @@ export function useCreateLoanManagement(
         const result = await createLoanApi({
           userId: trimmedUserId,
           loanDate: loanDateObj.toISOString(),
-          dueDate: dueDateObj.toISOString(),
           status: loanStatus,
           notes: notes.trim() || undefined,
           items: selectedItems.map((item) => ({
@@ -401,7 +373,6 @@ export function useCreateLoanManagement(
     [
       userId,
       loanDate,
-      dueDate,
       loanStatus,
       notes,
       selectedItems,
@@ -429,7 +400,8 @@ export function useCreateLoanManagement(
     loanDate,
     setLoanDate,
     dueDate,
-    setDueDate,
+    maxLoanDays,
+    isLoadingMaxLoanDays,
     loanStatus,
     setLoanStatus,
     notes,
@@ -465,7 +437,6 @@ export function useCreateLoanManagement(
     handleSelectBookCopy,
     handleAddManualBookCopy,
     handleRemoveSelectedCopy,
-    handleQuickDueDate,
     handleSubmitCreateLoan,
     handleBackToUsers,
   };

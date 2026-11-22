@@ -26,7 +26,7 @@ export function useLandingRedirect(): UseLandingRedirectReturn {
       const token = localStorage.getItem("hope_access_token");
       const storedUser = localStorage.getItem("hope_user");
 
-      if (token || storedUser) {
+      if (token) {
         let user: unknown = undefined;
         if (storedUser) {
           try {
@@ -36,9 +36,9 @@ export function useLandingRedirect(): UseLandingRedirectReturn {
           }
         }
 
-        const roles = extractRoles(user, token || undefined);
+        const roles = extractRoles(user, token);
         if (roles.length > 0) {
-          const redirectUrl = getPostLoginRedirectUrl(user, token || undefined);
+          const redirectUrl = getPostLoginRedirectUrl(user, token);
           router.replace(redirectUrl);
           return;
         }

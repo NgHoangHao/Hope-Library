@@ -24,12 +24,15 @@ export function DashboardTopbar({ onToggleMobileMenu, className }: DashboardTopb
   useEffect(() => {
     const loadUser = () => {
       try {
+        const token = localStorage.getItem("hope_access_token");
         const stored = localStorage.getItem("hope_user");
-        if (stored) {
+        if (token && stored) {
           setUser(JSON.parse(stored));
+        } else {
+          setUser(null);
         }
       } catch {
-        // ignore
+        setUser(null);
       }
     };
 
@@ -37,7 +40,9 @@ export function DashboardTopbar({ onToggleMobileMenu, className }: DashboardTopb
 
     const handleUserUpdated = (e: Event) => {
       const customEvent = e as CustomEvent;
-      if (customEvent.detail) {
+      if (customEvent.detail === null) {
+        setUser(null);
+      } else if (customEvent.detail) {
         setUser(customEvent.detail);
       } else {
         loadUser();

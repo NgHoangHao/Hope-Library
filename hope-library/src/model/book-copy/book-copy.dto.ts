@@ -29,18 +29,24 @@ export class UpdateBookCopyDto {
   id?: string;
 
   @AutoMap(() => String)
-  @ApiProperty({
-    description: 'Mã barcode duy nhất của cuốn sách',
+  @ApiPropertyOptional({
+    description: 'Mã barcode duy nhất của bản sao sách (bắt buộc khi tạo mới, tùy chọn khi cập nhật bản sao đã có theo id)',
     example: 'BC-2026-0001',
   })
-  barcode: string;
+  barcode?: string;
 
   @AutoMap(() => String)
   @ApiPropertyOptional({
     description: 'Vị trí kệ sách lưu trữ',
     example: 'Kệ A, Ngăn 3',
   })
-  shelfLocation?: string;
+  shelfLocation?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Alias cho vị trí kệ sách lưu trữ (shelfLocation)',
+    example: 'Kệ A, Ngăn 3',
+  })
+  location?: string | null;
 
   @AutoMap(() => String)
   @ApiPropertyOptional({

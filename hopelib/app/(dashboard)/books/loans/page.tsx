@@ -54,6 +54,8 @@ export default function LoansPage() {
     loanToFulfill,
     isLoadingFulfillDetail,
     isFulfilling,
+    maxLoanDays,
+    isLoadingMaxLoanDays,
     openFulfillModal,
     closeFulfillModal,
     handleFulfillLoan,
@@ -137,6 +139,8 @@ export default function LoansPage() {
         isOpen={isFulfillOpen}
         isLoadingDetail={isLoadingFulfillDetail}
         isFulfilling={isFulfilling}
+        maxLoanDays={maxLoanDays}
+        isLoadingMaxLoanDays={isLoadingMaxLoanDays}
         loan={loanToFulfill}
         onClose={closeFulfillModal}
         onConfirm={handleFulfillLoan}

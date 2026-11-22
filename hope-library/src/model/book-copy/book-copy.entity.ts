@@ -9,7 +9,6 @@ export enum BookCopyStatus {
   AVAILABLE = 'AVAILABLE',
   BORROWED = 'BORROWED',
   RESERVED = 'RESERVED',
-  MAINTENANCE = 'MAINTENANCE',
   LOST = 'LOST',
   DAMAGED = 'DAMAGED',
 }

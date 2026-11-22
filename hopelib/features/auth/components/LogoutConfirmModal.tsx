@@ -88,8 +88,9 @@ export function LogoutConfirmModal({
         localStorage.removeItem("hope_user");
         clearStoredPermissions();
 
-        // 3. Dispatch event storage để cập nhật các component khác
+        // 3. Dispatch event để cập nhật các component khác
         window.dispatchEvent(new Event("storage"));
+        window.dispatchEvent(new CustomEvent("hope_user_updated", { detail: null }));
 
         // 4. Bắn thông báo Alert thành công ở góc trên màn hình
         showToast({

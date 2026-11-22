@@ -15,8 +15,11 @@ import {
   CreateLoanDto,
   FulfillLoanDto,
   LoanDetailResponse,
+  MaxLoanDaysResponse,
   PaginatedLoanResponse,
   QueryLoanDto,
+  RemainingBorrowBooksResponse,
+  ReservationExpirationHoursResponse,
   ReserveBookDto,
   UpdateLoanDto,
 } from '../model/loan/loan.dto.js';
@@ -30,6 +33,7 @@ export class LoanService {
   private static readonly MAX_BORROW_BOOKS_CONFIG_KEY = 'MAX_BORROW_BOOKS';
   private static readonly OVERDUE_REMINDER_BEFORE_DAYS_CONFIG_KEY =
     'OVERDUE_REMINDER_BEFORE_DAYS';
+  private static readonly MAX_LOAN_DAYS_CONFIG_KEY = 'MAX_LOAN_DAYS';
 
   constructor(
     private readonly loanRepo: LoanRepository,
@@ -186,6 +190,44 @@ export class LoanService {
   }
 
   /**
+   * Lấy số ngày hạn trả sách mặc định (MAX_LOAN_DAYS):
+   * - Ưu tiên đọc từ SystemConfigService (Redis cache -> DB) theo key `MAX_LOAN_DAYS`
+   * - Nếu null/không tồn tại hoặc lỗi -> fallback sang biến môi trường `MAX_LOAN_DAYS` (mặc định 14 ngày)
+   */
+  private async getMaxLoanDays(): Promise<number> {
+    const envRaw =
+      this.configService?.get<string>(LoanService.MAX_LOAN_DAYS_CONFIG_KEY, '14') ??
+      process.env[LoanService.MAX_LOAN_DAYS_CONFIG_KEY] ??
+      '14';
+    const envParsed = Number(envRaw);
+    const envFallback =
+      Number.isFinite(envParsed) && envParsed > 0 ? Math.floor(envParsed) : 14;
+
+    if (!this.systemConfigService) {
+      return envFallback;
+    }
+
+    try {
+      const rawValue = await this.systemConfigService.getValue(
+        LoanService.MAX_LOAN_DAYS_CONFIG_KEY,
+      );
+      if (rawValue === null || rawValue === undefined || rawValue.trim() === '') {
+        return envFallback;
+      }
+
+      const parsed = Number(rawValue);
+      return Number.isFinite(parsed) && parsed > 0
+        ? Math.floor(parsed)
+        : envFallback;
+    } catch (error: any) {
+      this.logger.warn(
+        `Không thể đọc cấu hình ${LoanService.MAX_LOAN_DAYS_CONFIG_KEY} từ SystemConfig, fallback sang env (${envFallback} ngày): ${error?.message ?? error}`,
+      );
+      return envFallback;
+    }
+  }
+
+  /**
    * Lấy danh sách phiếu mượn có phân trang, tìm kiếm và lọc
    */
   async getAllLoans(query?: QueryLoanDto): Promise<PaginatedLoanResponse> {
@@ -213,6 +255,56 @@ export class LoanService {
       pageSize,
       unpaidFineSummary,
     );
+  }
+
+  /**
+   * Lấy số sách độc giả còn có thể mượn:
+   * = Giá trị system config MAX_BORROW_BOOKS (Redis -> DB -> env fallback) - số lượng LoanItem có status = BORROWED của độc giả
+   */
+  async getRemainingBorrowBooks(userId: string): Promise<RemainingBorrowBooksResponse> {
+    const trimmedUserId = userId?.trim();
+    if (!trimmedUserId) {
+      throw AppException.badRequest(
+        'Mã người dùng (userId) không được để trống',
+        { field: 'userId' },
+        'USER_ID_REQUIRED',
+      );
+    }
+
+    const [maxBorrowBooks, borrowedBooksCount] = await Promise.all([
+      this.getMaxBorrowBooks(),
+      this.loanRepo.countBorrowedLoanItemsByUser(trimmedUserId),
+    ]);
+
+    const remainingBorrowBooks = Math.max(0, maxBorrowBooks - borrowedBooksCount);
+
+    return new RemainingBorrowBooksResponse({
+      maxBorrowBooks,
+      borrowedBooksCount,
+      remainingBorrowBooks,
+    });
+  }
+
+  /**
+   * Lấy số giờ tối đa giữ chỗ đặt sách từ SystemConfig key `RESERVATION_EXPIRATION_HOURS`
+   * (ưu tiên Redis -> fallback DB -> fallback env)
+   */
+  async getReservationExpirationHoursConfig(): Promise<ReservationExpirationHoursResponse> {
+    const reservationExpirationHours = await this.getReservationExpirationHours();
+    return new ReservationExpirationHoursResponse({
+      reservationExpirationHours,
+    });
+  }
+
+  /**
+   * Lấy hạn trả sách mặc định (số ngày) từ SystemConfig key `MAX_LOAN_DAYS`
+   * (ưu tiên Redis -> fallback DB -> fallback env)
+   */
+  async getMaxLoanDaysConfig(): Promise<MaxLoanDaysResponse> {
+    const maxLoanDays = await this.getMaxLoanDays();
+    return new MaxLoanDaysResponse({
+      maxLoanDays,
+    });
   }
 
   /**
@@ -252,17 +344,8 @@ export class LoanService {
       );
     }
 
-    // 2. Kiểm tra hạn trả sách (dueDate)
-    if (!dto.dueDate) {
-      throw AppException.badRequest(
-        'Hạn trả sách (dueDate) là bắt buộc',
-        { field: 'dueDate' },
-        'DUE_DATE_REQUIRED',
-      );
-    }
-
+    // 2. Xác định ngày mượn và tự động tính hạn trả sách (dueDate) theo cấu hình MAX_LOAN_DAYS
     const loanDate = dto.loanDate ? new Date(dto.loanDate) : new Date();
-    const dueDate = new Date(dto.dueDate);
 
     if (isNaN(loanDate.getTime())) {
       throw AppException.badRequest(
@@ -272,21 +355,9 @@ export class LoanService {
       );
     }
 
-    if (isNaN(dueDate.getTime())) {
-      throw AppException.badRequest(
-        'Hạn trả sách không hợp lệ',
-        { dueDate: dto.dueDate },
-        'INVALID_DUE_DATE',
-      );
-    }
-
-    if (dueDate <= loanDate) {
-      throw AppException.badRequest(
-        'Hạn trả sách phải sau ngày mượn',
-        { loanDate, dueDate },
-        'DUE_DATE_MUST_BE_AFTER_LOAN_DATE',
-      );
-    }
+    const maxLoanDays = await this.getMaxLoanDays();
+    const dueDate = new Date(loanDate);
+    dueDate.setDate(dueDate.getDate() + maxLoanDays);
 
     // 3. Kiểm tra danh sách items
     if (!dto.items || !Array.isArray(dto.items) || dto.items.length === 0) {
@@ -971,31 +1042,10 @@ export class LoanService {
       );
     }
 
-    // Kiểm tra hạn trả sách (dueDate) bắt buộc khi giao sách tại quầy
-    if (!dto?.dueDate) {
-      throw AppException.badRequest(
-        'Hạn trả sách (dueDate) là bắt buộc khi giao sách tại quầy',
-        { field: 'dueDate' },
-        'DUE_DATE_REQUIRED',
-      );
-    }
-
-    const dueDate = new Date(dto.dueDate);
-    if (isNaN(dueDate.getTime())) {
-      throw AppException.badRequest(
-        'Hạn trả sách (dueDate) không hợp lệ',
-        { dueDate: dto.dueDate },
-        'INVALID_DUE_DATE',
-      );
-    }
-
-    if (dueDate <= now) {
-      throw AppException.badRequest(
-        'Hạn trả sách phải sau ngày mượn',
-        { now, dueDate },
-        'DUE_DATE_MUST_BE_AFTER_LOAN_DATE',
-      );
-    }
+    // Tự động tính hạn trả sách (dueDate) theo cấu hình MAX_LOAN_DAYS (Redis -> DB -> env)
+    const maxLoanDays = await this.getMaxLoanDays();
+    const dueDate = new Date(now);
+    dueDate.setDate(dueDate.getDate() + maxLoanDays);
 
     try {
       await this.loanRepo.runInTransaction(async (manager) => {

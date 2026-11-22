@@ -235,7 +235,7 @@ export class BookController {
   @ApiOperation({
     summary: 'Cập nhật sách',
     description:
-      'Cập nhật thông tin sách cùng danh sách bản sao (copies). Nếu file ảnh hoặc file PDF nhận vào null hoặc không gửi thì không thay đổi file tương ứng.',
+      'Cập nhật thông tin sách cùng danh sách bản sao (copies: hỗ trợ cập nhật barcode, shelfLocation/location, status). Nếu file ảnh hoặc file PDF nhận vào null hoặc không gửi thì không thay đổi file tương ứng.',
   })
   @ApiBody({
     type: UpdateBookDto,
@@ -270,17 +270,36 @@ export class BookController {
     // Parse copies nếu được gửi dưới dạng JSON string trong multipart/form-data
     if (body.copies !== undefined && body.copies !== null) {
       if (typeof body.copies === 'string') {
-        try {
-          updateBookDto.copies = JSON.parse(body.copies);
-        } catch {
-          throw AppException.badRequest(
-            'Dữ liệu danh sách bản sao (copies) phải là chuỗi JSON hợp lệ',
-            { received: body.copies },
-            'INVALID_COPIES_JSON_FORMAT',
-          );
+        if (body.copies.trim() !== '') {
+          try {
+            const parsedCopies = JSON.parse(body.copies);
+            if (!Array.isArray(parsedCopies)) {
+              throw AppException.badRequest(
+                'Dữ liệu danh sách bản sao (copies) phải là mảng JSON hợp lệ',
+                { received: body.copies },
+                'INVALID_COPIES_JSON_FORMAT',
+              );
+            }
+            updateBookDto.copies = parsedCopies;
+          } catch (error) {
+            if (error instanceof AppException) {
+              throw error;
+            }
+            throw AppException.badRequest(
+              'Dữ liệu danh sách bản sao (copies) phải là chuỗi JSON hợp lệ',
+              { received: body.copies },
+              'INVALID_COPIES_JSON_FORMAT',
+            );
+          }
         }
       } else if (Array.isArray(body.copies)) {
         updateBookDto.copies = body.copies;
+      } else {
+        throw AppException.badRequest(
+          'Dữ liệu danh sách bản sao (copies) phải là mảng hợp lệ',
+          { received: body.copies },
+          'INVALID_COPIES_FORMAT',
+        );
       }
     }
 

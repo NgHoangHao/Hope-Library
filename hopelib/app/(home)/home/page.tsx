@@ -9,11 +9,21 @@ import {
 } from "@/features/book";
 import { useBorrowerHomeGuard, useAuthModal } from "@/features/auth";
 import { getAvatarUrl } from "@/features/profile";
+import {
+  BorrowerRemainingBooksCard,
+  useRemainingBorrowBooks,
+} from "@/features/loan";
 
 export default function BorrowerHomePage() {
   const { isAuthorized, isLoading: isGuardLoading } = useBorrowerHomeGuard();
   const { user } = useAuthModal();
   const [imageError, setImageError] = useState(false);
+  const {
+    maxBorrowBooks,
+    borrowedBooksCount,
+    remainingBorrowBooks,
+    isLoading: isLoadingQuota,
+  } = useRemainingBorrowBooks();
 
   const {
     topBooks,
@@ -87,6 +97,16 @@ export default function BorrowerHomePage() {
             )}
           </div>
         </section>
+
+        {/* Remaining Borrowable Books Quota Card */}
+        <BorrowerRemainingBooksCard
+          variant="banner"
+          maxBorrowBooks={maxBorrowBooks}
+          borrowedBooksCount={borrowedBooksCount}
+          remainingBorrowBooks={remainingBorrowBooks}
+          isLoading={isLoadingQuota}
+          className="mb-8"
+        />
 
         {/* Global Search Bar */}
         <form

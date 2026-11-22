@@ -175,7 +175,8 @@ export class UpdateBookDto {
   pdf?: Express.Multer.File;
 
   @ApiPropertyOptional({
-    description: 'Danh sách các bản sao sách (copies) bao gồm barcode, vị trí kệ shelfLocation và status',
+    description:
+      'Danh sách các bản sao sách (copies) cho phép cập nhật id, barcode, vị trí kệ (shelfLocation hoặc location) và trạng thái (status)',
     type: () => [UpdateBookCopyDto],
   })
   copies?: UpdateBookCopyDto[];

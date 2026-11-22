@@ -4,6 +4,7 @@ export * from "./CreateLoanBookSelector";
 export * from "./CreateLoanFormPanel";
 export * from "./BorrowerLoanToolbar";
 export * from "./BorrowerUnpaidFineBanner";
+export * from "./BorrowerRemainingBooksCard";
 export * from "./BorrowerLoanList";
 export * from "./BorrowerLoanDetailModal";
 export * from "./BorrowerLoanCancelModal";

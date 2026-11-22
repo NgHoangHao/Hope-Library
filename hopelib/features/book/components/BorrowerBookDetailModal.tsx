@@ -42,6 +42,8 @@ export interface BorrowerBookDetailModalProps {
   // Multi-book cart props
   cartCopyIdSet?: Set<string>;
   cartCount?: number;
+  maxCartItems?: number;
+  reservationExpirationHours?: number;
   onAddToCart?: (items: ReservationCartItem[]) => void;
   onOpenCart?: () => void;
 }
@@ -59,6 +61,8 @@ export function BorrowerBookDetailModal({
   onReserveBook,
   cartCopyIdSet,
   cartCount = 0,
+  maxCartItems = MAX_RESERVATION_CART_ITEMS,
+  reservationExpirationHours = 48,
   onAddToCart,
   onOpenCart,
 }: BorrowerBookDetailModalProps) {
@@ -444,7 +448,7 @@ export function BorrowerBookDetailModal({
                       </h4>
                       <p className="text-xs text-neutral-500 mt-0.5 flex items-center gap-1">
                         <Clock aria-hidden="true" className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span>Phiếu giữ chỗ có hiệu lực 48 giờ để bạn tới quầy nhận sách (tối đa 3 sách).</span>
+                        <span>Phiếu giữ chỗ có hiệu lực {reservationExpirationHours} giờ để bạn tới quầy nhận sách (tối đa {maxCartItems} sách).</span>
                       </p>
                     </div>
                   </div>
@@ -495,7 +499,7 @@ export function BorrowerBookDetailModal({
                         >
                           <ShoppingBag aria-hidden="true" className="w-4 h-4 text-[#F5B82E]" />
                           <span>
-                            Thêm vào giỏ ({cartCount}/{MAX_RESERVATION_CART_ITEMS})
+                            Thêm vào giỏ ({cartCount}/{maxCartItems})
                           </span>
                         </button>
                       )}

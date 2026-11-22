@@ -7,6 +7,8 @@ import {
   LoanDetailResponse,
   LoanStatus,
   PaginatedLoanResponse,
+  RemainingBorrowBooksResponse,
+  ReservationExpirationHoursResponse,
   ReserveBookDto,
 } from '../model/loan/loan.dto.js';
 import { TokenHelper } from '../utils/token.helper.js';
@@ -26,6 +28,8 @@ describe('LoanController', () => {
       fulfillLoan: vi.fn(),
       cancelExpiredReservations: vi.fn(),
       cancelReservation: vi.fn(),
+      getRemainingBorrowBooks: vi.fn(),
+      getReservationExpirationHoursConfig: vi.fn(),
     };
 
     controller = new LoanController(loanService as unknown as LoanService);
@@ -88,6 +92,51 @@ describe('LoanController', () => {
     });
   });
 
+  describe('getMyRemainingBorrowBooks (Lấy số sách độc giả còn có thể mượn)', () => {
+    it('nên trích xuất userId từ token và trả về ApiResponse<RemainingBorrowBooksResponse>', async () => {
+      const mockReq = {
+        headers: {
+          authorization: 'Bearer valid.mocktoken',
+        },
+      } as unknown as Request;
+
+      vi.spyOn(TokenHelper, 'extractTokenFromRequest').mockReturnValue('valid.mocktoken');
+      vi.spyOn(TokenHelper, 'decodeToken').mockReturnValue({
+        userId: 'borrower-uuid-1',
+        email: 'borrower@example.com',
+        roles: ['BORROWER'],
+      });
+
+      const mockQuota = new RemainingBorrowBooksResponse({
+        maxBorrowBooks: 5,
+        borrowedBooksCount: 2,
+        remainingBorrowBooks: 3,
+      });
+      loanService.getRemainingBorrowBooks!.mockResolvedValue(mockQuota);
+
+      const res = await controller.getMyRemainingBorrowBooks(mockReq);
+
+      expect(loanService.getRemainingBorrowBooks).toHaveBeenCalledWith('borrower-uuid-1');
+      expect(res.statusCode).toBe(200);
+      expect(res.response).toEqual(mockQuota);
+    });
+  });
+
+  describe('getReservationExpirationHours (Lấy số giờ tối đa giữ chỗ đặt sách)', () => {
+    it('nên gọi service.getReservationExpirationHoursConfig và trả về ApiResponse<ReservationExpirationHoursResponse>', async () => {
+      const mockConfig = new ReservationExpirationHoursResponse({
+        reservationExpirationHours: 72,
+      });
+      loanService.getReservationExpirationHoursConfig!.mockResolvedValue(mockConfig);
+
+      const res = await controller.getReservationExpirationHours();
+
+      expect(loanService.getReservationExpirationHoursConfig).toHaveBeenCalledTimes(1);
+      expect(res.statusCode).toBe(200);
+      expect(res.response).toEqual(mockConfig);
+    });
+  });
+
   describe('getLoanById', () => {
     it('nên trả về chi tiết phiếu mượn', async () => {
       const mockLoan = new LoanDetailResponse({ id: 'loan-1', items: [] });
@@ -144,7 +193,6 @@ describe('LoanController', () => {
       loanService.fulfillLoan!.mockResolvedValue(mockLoan);
 
       const dto: FulfillLoanDto = {
-        dueDate: new Date(Date.now() + 14 * 24 * 3600 * 1000),
         notes: 'Giao sách tại quầy',
       };
 

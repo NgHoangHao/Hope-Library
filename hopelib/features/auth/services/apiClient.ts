@@ -102,6 +102,8 @@ export async function refreshAccessToken(): Promise<string> {
         localStorage.removeItem("hope_user");
         localStorage.removeItem("hope_permissions");
         localStorage.removeItem("hope_permission_details");
+        window.dispatchEvent(new Event("storage"));
+        window.dispatchEvent(new CustomEvent("hope_user_updated", { detail: null }));
         dispatchSessionExpired("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
       }
       return null;

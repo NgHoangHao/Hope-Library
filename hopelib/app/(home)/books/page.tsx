@@ -10,7 +10,6 @@ import {
   BorrowerReserveCartBar,
   BorrowerReserveCartDrawer,
   BookPagination,
-  MAX_RESERVATION_CART_ITEMS,
   useBorrowerBooks,
 } from "@/features/book";
 import { useBorrowerHomeGuard } from "@/features/auth";
@@ -49,6 +48,8 @@ function BorrowerBooksContent() {
     reserveSuccessMessage,
     handleReserveBook,
     cartItems,
+    maxCartItems,
+    reservationExpirationHours,
     cartCopyIdSet,
     cartCountByBookId,
     isCartOpen,
@@ -103,7 +104,7 @@ function BorrowerBooksContent() {
             <ShoppingBag aria-hidden="true" className="w-4 h-4 text-[#F5B82E]" />
             <span>Giỏ đặt mượn</span>
             <span className="px-2 py-0.5 rounded-full bg-[#F5B82E] text-[#1A1A1A] text-xs font-bold">
-              {cartItems.length}/{MAX_RESERVATION_CART_ITEMS}
+              {cartItems.length}/{maxCartItems}
             </span>
           </button>
         </div>
@@ -162,6 +163,8 @@ function BorrowerBooksContent() {
           onReserveBook={handleReserveBook}
           cartCopyIdSet={cartCopyIdSet}
           cartCount={cartItems.length}
+          maxCartItems={maxCartItems}
+          reservationExpirationHours={reservationExpirationHours}
           onAddToCart={handleAddToCart}
           onOpenCart={handleOpenCart}
         />
@@ -169,6 +172,7 @@ function BorrowerBooksContent() {
         {/* Floating Multi-Book Reservation Cart Bar */}
         <BorrowerReserveCartBar
           items={cartItems}
+          maxCartItems={maxCartItems}
           onOpenCart={handleOpenCart}
         />
 
@@ -176,6 +180,8 @@ function BorrowerBooksContent() {
         <BorrowerReserveCartDrawer
           isOpen={isCartOpen}
           items={cartItems}
+          maxCartItems={maxCartItems}
+          reservationExpirationHours={reservationExpirationHours}
           isSubmitting={isReserving}
           error={reserveError}
           successMessage={reserveSuccessMessage}

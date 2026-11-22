@@ -11,7 +11,12 @@ import { getBooksApi, getBookByIdApi } from "../services/bookApi";
 import { getCategoriesApi, Category } from "@/features/category";
 import { getAuthorsApi, Author } from "@/features/author";
 import { isSessionExpiredError } from "@/features/auth";
-import { reserveBooksApi } from "@/features/loan";
+import {
+  reserveBooksApi,
+  notifyBorrowQuotaUpdated,
+  useRemainingBorrowBooks,
+  useReservationExpirationHours,
+} from "@/features/loan";
 import { showToast } from "@/components/ui";
 
 export interface UseBorrowerBooksReturn {
@@ -59,6 +64,8 @@ export interface UseBorrowerBooksReturn {
 
   // Multi-book Reservation Cart (1 loan -> multiple copies across different books)
   cartItems: ReservationCartItem[];
+  maxCartItems: number;
+  reservationExpirationHours: number;
   cartCopyIdSet: Set<string>;
   cartCountByBookId: Record<string, number>;
   isCartOpen: boolean;
@@ -73,6 +80,21 @@ export interface UseBorrowerBooksReturn {
 export function useBorrowerBooks(): UseBorrowerBooksReturn {
   const searchParams = useSearchParams();
   const initialSearch = searchParams.get("search") || "";
+
+  // Dynamic quota & reservation expiration config from API
+  const {
+    quota,
+    remainingBorrowBooks,
+    isLoading: isLoadingQuota,
+  } = useRemainingBorrowBooks();
+  const { reservationExpirationHours } = useReservationExpirationHours();
+
+  const maxCartItems =
+    quota !== null
+      ? remainingBorrowBooks
+      : isLoadingQuota
+        ? MAX_RESERVATION_CART_ITEMS
+        : remainingBorrowBooks;
 
   // Pagination & Books State
   const [books, setBooks] = useState<BookEntity[]>([]);
@@ -120,6 +142,12 @@ export function useBorrowerBooks(): UseBorrowerBooksReturn {
       // ignore storage errors
     }
   }, []);
+
+  useEffect(() => {
+    if (quota !== null && cartItems.length > remainingBorrowBooks) {
+      setCartItems((prev) => prev.slice(0, remainingBorrowBooks));
+    }
+  }, [quota, remainingBorrowBooks, cartItems.length]);
 
   useEffect(() => {
     try {
@@ -323,8 +351,8 @@ export function useBorrowerBooks(): UseBorrowerBooksReturn {
 
       try {
         await reserveBooksApi({ bookCopyIds, notes });
-        const successMsg =
-          "Đặt mượn giữ chỗ sách thành công! Vui lòng tới quầy thư viện nhận sách trong vòng 48 giờ.";
+        notifyBorrowQuotaUpdated();
+        const successMsg = `Đặt mượn giữ chỗ sách thành công! Vui lòng tới quầy thư viện nhận sách trong vòng ${reservationExpirationHours} giờ.`;
         setReserveSuccessMessage(successMsg);
         showToast({
           type: "success",
@@ -373,7 +401,13 @@ export function useBorrowerBooks(): UseBorrowerBooksReturn {
         setIsReserving(false);
       }
     },
-    [selectedBookDetail, authorMap, categoryMap, fetchBooks]
+    [
+      selectedBookDetail,
+      authorMap,
+      categoryMap,
+      fetchBooks,
+      reservationExpirationHours,
+    ]
   );
 
   const handleOpenCart = useCallback(() => {
@@ -405,12 +439,18 @@ export function useBorrowerBooks(): UseBorrowerBooksReturn {
         return;
       }
 
-      const remainingSlots = MAX_RESERVATION_CART_ITEMS - cartItems.length;
+      const remainingSlots = maxCartItems - cartItems.length;
       if (remainingSlots <= 0) {
         showToast({
           type: "warning",
-          title: "Giỏ đặt mượn đã đầy",
-          message: `Mỗi phiếu đặt mượn chỉ tối đa ${MAX_RESERVATION_CART_ITEMS} bản sách.`,
+          title:
+            maxCartItems <= 0
+              ? "Đã đạt giới hạn mượn sách"
+              : "Giỏ đặt mượn đã đầy",
+          message:
+            maxCartItems <= 0
+              ? "Bạn đã hết lượt mượn sách khả dụng. Vui lòng trả sách trước khi đặt thêm."
+              : `Bạn chỉ còn có thể đặt tối đa ${maxCartItems} bản sách.`,
         });
         return;
       }
@@ -422,18 +462,18 @@ export function useBorrowerBooks(): UseBorrowerBooksReturn {
       if (itemsToAdd.length < uniqueNew.length) {
         showToast({
           type: "warning",
-          title: "Đã đạt giới hạn 3 sách",
-          message: `Đã thêm ${itemsToAdd.length} bản vào giỏ (${next.length}/${MAX_RESERVATION_CART_ITEMS}).`,
+          title: `Đã đạt giới hạn ${maxCartItems} sách`,
+          message: `Đã thêm ${itemsToAdd.length} bản vào giỏ (${next.length}/${maxCartItems}).`,
         });
       } else {
         showToast({
           type: "success",
           title: "Đã thêm vào giỏ đặt mượn",
-          message: `Đã thêm ${itemsToAdd.length} bản sao (${next.length}/${MAX_RESERVATION_CART_ITEMS} sách). Bạn có thể chọn thêm đầu sách khác hoặc bấm Đặt mượn ngay.`,
+          message: `Đã thêm ${itemsToAdd.length} bản sao (${next.length}/${maxCartItems} sách). Bạn có thể chọn thêm đầu sách khác hoặc bấm Đặt mượn ngay.`,
         });
       }
     },
-    [cartItems]
+    [cartItems, maxCartItems]
   );
 
   const handleRemoveFromCart = useCallback((bookCopyId: string) => {
@@ -497,6 +537,8 @@ export function useBorrowerBooks(): UseBorrowerBooksReturn {
     handleReserveBook,
     clearReserveFeedback,
     cartItems,
+    maxCartItems,
+    reservationExpirationHours,
     cartCopyIdSet,
     cartCountByBookId,
     isCartOpen,

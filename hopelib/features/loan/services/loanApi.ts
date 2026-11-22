@@ -6,8 +6,11 @@ import {
   LoanDetailResponseData,
   LoanFineResponseData,
   LoansQueryParams,
+  MaxLoanDaysData,
   MyLoansQueryParams,
   PaginatedLoanData,
+  RemainingBorrowBooksData,
+  ReservationExpirationHoursData,
   ReserveBookInput,
   UpdateLoanInput,
 } from "../types/loan.types";
@@ -100,6 +103,69 @@ export async function getMyLoansApi(
 }
 
 /**
+ * Gọi API GET /loans/me/remaining-books để lấy số sách độc giả hiện tại còn có thể mượn
+ */
+export async function getMyRemainingBorrowBooksApi(
+  token?: string
+): Promise<RemainingBorrowBooksData> {
+  const data = await apiFetch<RemainingBorrowBooksData>("/loans/me/remaining-books", {
+    method: "GET",
+    token,
+  });
+
+  const maxBorrowBooks = Number(data?.maxBorrowBooks ?? 0);
+  const borrowedBooksCount = Number(data?.borrowedBooksCount ?? 0);
+  const remainingBorrowBooks = Number(
+    data?.remainingBorrowBooks ?? Math.max(0, maxBorrowBooks - borrowedBooksCount)
+  );
+
+  return {
+    maxBorrowBooks,
+    borrowedBooksCount,
+    remainingBorrowBooks,
+  };
+}
+
+/**
+ * Gọi API GET /loans/reservation-expiration-hours để lấy số giờ giữ chỗ tối đa khi đặt sách
+ */
+export async function getReservationExpirationHoursApi(
+  token?: string
+): Promise<ReservationExpirationHoursData> {
+  const data = await apiFetch<ReservationExpirationHoursData>(
+    "/loans/reservation-expiration-hours",
+    {
+      method: "GET",
+      token,
+    }
+  );
+
+  const parsed = Number(data?.reservationExpirationHours);
+  return {
+    reservationExpirationHours:
+      Number.isFinite(parsed) && parsed > 0 ? parsed : 48,
+  };
+}
+
+/**
+ * Gọi API GET /loans/max-loan-days để lấy hạn trả sách mặc định (số ngày mượn tối đa)
+ */
+export async function getMaxLoanDaysApi(
+  token?: string
+): Promise<MaxLoanDaysData> {
+  const data = await apiFetch<MaxLoanDaysData>("/loans/max-loan-days", {
+    method: "GET",
+    token,
+  });
+
+  const parsed = Number(data?.maxLoanDays);
+  return {
+    maxLoanDays:
+      Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 14,
+  };
+}
+
+/**
  * Gọi API GET /loans/:id để lấy chi tiết phiếu mượn
  */
 export async function getLoanDetailApi(
@@ -155,7 +221,6 @@ export async function createLoanApi(
     body: JSON.stringify({
       userId: input.userId.trim(),
       loanDate: input.loanDate || undefined,
-      dueDate: input.dueDate,
       pickupDeadline: input.pickupDeadline || undefined,
       status: input.status || "BORROWED",
       notes: input.notes?.trim() || undefined,
@@ -206,7 +271,6 @@ export async function fulfillLoanApi(
     method: "POST",
     token,
     body: JSON.stringify({
-      dueDate: input.dueDate,
       notes: input.notes?.trim() || undefined,
       bookCopyIds: input.bookCopyIds,
       barcodes: input.barcodes,

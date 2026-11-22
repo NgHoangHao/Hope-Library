@@ -38,17 +38,37 @@ export interface BorrowRecord {
 
 export type BookStatus = "ACTIVE" | "INACTIVE" | "ARCHIVED";
 
+export type BookCopyStatus =
+  | "AVAILABLE"
+  | "BORROWED"
+  | "RESERVED"
+  | "MAINTENANCE"
+  | "LOST"
+  | "DAMAGED";
+
+export type EditableBookCopyStatus = "AVAILABLE" | "RESERVED" | "LOST" | "DAMAGED";
+
+export const EDITABLE_BOOK_COPY_STATUS_OPTIONS: {
+  value: EditableBookCopyStatus;
+  label: string;
+}[] = [
+    { value: "AVAILABLE", label: "Có sẵn" },
+    { value: "LOST", label: "Thất lạc" },
+    { value: "DAMAGED", label: "Hư hỏng" },
+  ];
+
 export interface BookCopyInput {
   id?: string;
   barcode: string;
   shelfLocation?: string;
+  status?: BookCopyStatus;
 }
 
 export interface BookCopyItem {
   id: string;
   barcode: string;
   shelfLocation?: string | null;
-  status: string;
+  status: BookCopyStatus | string;
 }
 
 export interface BookEntity {

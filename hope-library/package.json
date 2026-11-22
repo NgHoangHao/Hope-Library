@@ -27,7 +27,8 @@
     "seed:system-nav": "tsx src/database/system-navigation.seeder.ts",
     "seed:system-mgmt-nav": "tsx src/database/system-management-navigation.seeder.ts",
     "seed:system-config": "tsx src/database/system-config.seeder.ts",
-    "seed:overdue-reminder-config": "tsx src/database/overdue-reminder-config.seeder.ts"
+    "seed:overdue-reminder-config": "tsx src/database/overdue-reminder-config.seeder.ts",
+    "seed:max-loan-days-config": "tsx src/database/max-loan-days-config.seeder.ts"
   },
   "dependencies": {
     "@automapper/classes": "^9.0.2",

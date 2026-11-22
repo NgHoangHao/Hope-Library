@@ -20,5 +20,6 @@ export * from "./BookManagementTable";
 export * from "./BookPagination";
 export * from "./BookManagementDetailModal";
 export * from "./BookManagementFormModal";
+export * from "./BookCopiesFormSection";
 export * from "./BookManagementDeleteModal";
 export * from "./BookPdfSection";

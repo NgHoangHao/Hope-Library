@@ -15,12 +15,20 @@ import {
   BorrowerLoanList,
   BorrowerLoanPagination,
   BorrowerLoanToolbar,
+  BorrowerRemainingBooksCard,
   BorrowerUnpaidFineBanner,
   useBorrowerLoans,
+  useRemainingBorrowBooks,
 } from "@/features/loan";
 
 export default function BorrowingPage() {
   const { isAuthorized } = useBorrowerHomeGuard();
+  const {
+    maxBorrowBooks,
+    borrowedBooksCount,
+    remainingBorrowBooks,
+    isLoading: isLoadingQuota,
+  } = useRemainingBorrowBooks();
   const {
     canReadMyLoans,
     isPermissionsLoading,
@@ -113,6 +121,15 @@ export default function BorrowingPage() {
           </div>
         ) : (
           <>
+            <BorrowerRemainingBooksCard
+              variant="banner"
+              maxBorrowBooks={maxBorrowBooks}
+              borrowedBooksCount={borrowedBooksCount}
+              remainingBorrowBooks={remainingBorrowBooks}
+              isLoading={isLoadingQuota}
+              className="mb-6"
+            />
+
             <BorrowerUnpaidFineBanner
               totalUnpaidFineAmount={totalUnpaidFineAmount}
               unpaidFineLoansCount={unpaidFineLoansCount}

@@ -306,6 +306,32 @@ export class LoanRepository {
   }
 
   /**
+   * Đếm số lượng LoanItem có trạng thái BORROWED của độc giả (không tính phiếu đã hủy/hết hạn)
+   */
+  async countBorrowedLoanItemsByUser(userId: string): Promise<number> {
+    const loans = await this.loanModel
+      .find(
+        {
+          userId,
+          status: { $nin: [LoanStatus.CANCELLED, LoanStatus.EXPIRED] },
+        },
+        { id: 1 },
+      )
+      .lean()
+      .exec();
+
+    const loanIds = loans.map((l) => l.id);
+    if (loanIds.length === 0) return 0;
+
+    return this.loanItemModel
+      .countDocuments({
+        loanId: { $in: loanIds },
+        status: LoanItemStatus.BORROWED,
+      })
+      .exec();
+  }
+
+  /**
    * Kiểm tra người dùng có sách bị quá hạn (OVERDUE) chưa trả hay không
    */
   async hasOverdueLoansByUser(userId: string, now: Date = new Date()): Promise<boolean> {

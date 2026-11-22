@@ -248,6 +248,9 @@ export function BookManagementDetailModal({
                             "px-2 py-0.5 rounded-md font-semibold text-[10px] uppercase",
                             copy.status === "AVAILABLE" && "bg-emerald-100 text-emerald-800",
                             copy.status === "BORROWED" && "bg-amber-100 text-amber-800",
+                            copy.status === "RESERVED" && "bg-sky-100 text-sky-800",
+                            copy.status === "MAINTENANCE" && "bg-stone-200 text-stone-700",
+                            copy.status === "DAMAGED" && "bg-orange-100 text-orange-800",
                             copy.status === "LOST" && "bg-rose-100 text-rose-800"
                           )}
                         >

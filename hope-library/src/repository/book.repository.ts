@@ -203,11 +203,29 @@ export class BookRepository {
           const existingCopyMap = new Map(existingCopies.map((c) => [c.id, c]));
           const existingBarcodeMap = new Map(existingCopies.map((c) => [c.barcode, c]));
 
-          const incomingIds = new Set(copiesData.map((c) => c.id).filter(Boolean));
-          const toDeleteCopies = existingCopies.filter((c) => !incomingIds.has(c.id));
+          // Ánh xạ từng bản sao đầu vào với bản sao hiện có (ưu tiên theo id, fallback theo barcode)
+          const matchedEntries = copiesData.map((copyDto) => {
+            let matchedCopy: BookCopy | undefined;
+            if (copyDto.id && existingCopyMap.has(copyDto.id)) {
+              matchedCopy = existingCopyMap.get(copyDto.id);
+            } else if (!copyDto.id && copyDto.barcode && existingBarcodeMap.has(copyDto.barcode)) {
+              matchedCopy = existingBarcodeMap.get(copyDto.barcode);
+            }
+            return { copyDto, matchedCopy };
+          });
+
+          const matchedExistingIds = new Set(
+            matchedEntries
+              .map((entry) => entry.matchedCopy?.id)
+              .filter((copyId): copyId is string => Boolean(copyId)),
+          );
+          const toDeleteCopies = existingCopies.filter((c) => !matchedExistingIds.has(c.id));
 
           for (const toDelete of toDeleteCopies) {
-            if (toDelete.status === BookCopyStatus.BORROWED) {
+            if (
+              toDelete.status === BookCopyStatus.BORROWED ||
+              toDelete.status === BookCopyStatus.RESERVED
+            ) {
               throw AppException.badRequest(
                 `Không thể xóa bản sao với barcode '${toDelete.barcode}' vì đang được mượn`,
                 { barcode: toDelete.barcode, copyId: toDelete.id },
@@ -223,30 +241,51 @@ export class BookRepository {
               .exec();
           }
 
+          // Tránh xung đột unique index trên barcode khi hoán đổi barcode giữa các bản sao của cùng một sách
+          const copiesChangingBarcode = matchedEntries.filter(
+            ({ copyDto, matchedCopy }) =>
+              matchedCopy && copyDto.barcode && copyDto.barcode !== matchedCopy.barcode,
+          );
+          if (copiesChangingBarcode.length > 0) {
+            const incomingBarcodes = new Set(
+              copiesChangingBarcode
+                .map(({ copyDto }) => copyDto.barcode)
+                .filter((b): b is string => Boolean(b)),
+            );
+            const conflictingOldCopies = copiesChangingBarcode.filter(
+              ({ matchedCopy }) => matchedCopy && incomingBarcodes.has(matchedCopy.barcode),
+            );
+            for (const { matchedCopy } of conflictingOldCopies) {
+              if (!matchedCopy) continue;
+              await this.bookCopyModel
+                .updateOne(
+                  { id: matchedCopy.id },
+                  { $set: { barcode: `__tmp_swap_${matchedCopy.id}` } },
+                )
+                .session(session)
+                .exec();
+            }
+          }
+
           const savedCopies: BookCopy[] = [];
-          for (const copyDto of copiesData) {
+          for (const { copyDto, matchedCopy } of matchedEntries) {
             let copyEntity: BookCopy;
-            if (copyDto.id && existingCopyMap.has(copyDto.id)) {
-              copyEntity = existingCopyMap.get(copyDto.id)!;
-              copyEntity.barcode = copyDto.barcode!;
+            if (matchedCopy) {
+              copyEntity = matchedCopy;
+              if (copyDto.barcode !== undefined) {
+                copyEntity.barcode = copyDto.barcode;
+              }
               if (copyDto.shelfLocation !== undefined) {
                 copyEntity.shelfLocation = copyDto.shelfLocation;
               }
-              if (copyDto.status) {
-                copyEntity.status = copyDto.status;
-              }
-            } else if (!copyDto.id && copyDto.barcode && existingBarcodeMap.has(copyDto.barcode)) {
-              copyEntity = existingBarcodeMap.get(copyDto.barcode)!;
-              if (copyDto.shelfLocation !== undefined) {
-                copyEntity.shelfLocation = copyDto.shelfLocation;
-              }
-              if (copyDto.status) {
+              if (copyDto.status !== undefined) {
                 copyEntity.status = copyDto.status;
               }
             } else {
               copyEntity = new BookCopy({
                 ...copyDto,
                 bookId: book.id,
+                shelfLocation: copyDto.shelfLocation ?? null,
                 status: copyDto.status ?? BookCopyStatus.AVAILABLE,
               });
             }

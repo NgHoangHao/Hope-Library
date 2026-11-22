@@ -19,8 +19,11 @@ import {
   FulfillLoanDto,
   LoanDetailResponse,
   LoanStatus,
+  MaxLoanDaysResponse,
   PaginatedLoanResponse,
   QueryLoanDto,
+  RemainingBorrowBooksResponse,
+  ReservationExpirationHoursResponse,
   ReserveBookDto,
   UpdateLoanDto,
 } from '../model/loan/loan.dto.js';
@@ -140,6 +143,65 @@ export class LoanController {
       search,
     });
     return ApiResponse.success(loans, 'Lấy danh sách phiếu mượn của bạn thành công');
+  }
+
+  /**
+   * GET /loans/me/remaining-books - Lấy số sách độc giả hiện tại còn có thể mượn
+   */
+  @Get('me/remaining-books')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Lấy số sách độc giả hiện tại còn có thể mượn',
+    description:
+      'Lấy userId trực tiếp từ JWT Access Token. Tính bằng giá trị cấu hình hệ thống MAX_BORROW_BOOKS (ưu tiên Redis, fallback DB) trừ đi số lượng LoanItem có trạng thái BORROWED của độc giả.',
+  })
+  async getMyRemainingBorrowBooks(
+    @Req() req: Request,
+  ): Promise<ApiResponse<RemainingBorrowBooksResponse>> {
+    const token = TokenHelper.extractTokenFromRequest(req);
+    const payload = TokenHelper.decodeToken(token);
+    const userId = payload.userId || payload.sub || '';
+
+    const result = await this.loanService.getRemainingBorrowBooks(userId);
+    return ApiResponse.success(result, 'Lấy số sách còn có thể mượn thành công');
+  }
+
+  /**
+   * GET /loans/reservation-expiration-hours - Lấy số giờ giữ chỗ tối đa khi đặt sách
+   */
+  @Get('reservation-expiration-hours')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Lấy số giờ tối đa giữ chỗ đặt sách',
+    description:
+      'Đọc cấu hình hệ thống với key RESERVATION_EXPIRATION_HOURS (ưu tiên Redis, fallback DB và biến môi trường).',
+  })
+  async getReservationExpirationHours(): Promise<
+    ApiResponse<ReservationExpirationHoursResponse>
+  > {
+    const result = await this.loanService.getReservationExpirationHoursConfig();
+    return ApiResponse.success(
+      result,
+      'Lấy thời gian giữ chỗ đặt sách tối đa thành công',
+    );
+  }
+
+  /**
+   * GET /loans/max-loan-days - Lấy số ngày hạn trả sách mặc định (MAX_LOAN_DAYS)
+   */
+  @Get('max-loan-days')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Lấy hạn trả sách mặc định (số ngày mượn tối đa)',
+    description:
+      'Đọc cấu hình hệ thống với key MAX_LOAN_DAYS (ưu tiên Redis, fallback DB và biến môi trường).',
+  })
+  async getMaxLoanDays(): Promise<ApiResponse<MaxLoanDaysResponse>> {
+    const result = await this.loanService.getMaxLoanDaysConfig();
+    return ApiResponse.success(
+      result,
+      'Lấy hạn trả sách mặc định thành công',
+    );
   }
 
   /**

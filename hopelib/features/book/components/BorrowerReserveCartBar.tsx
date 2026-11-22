@@ -10,6 +10,7 @@ import { getBookCoverUrl } from "../utils/bookImage.helper";
 
 export interface BorrowerReserveCartBarProps {
   items: ReservationCartItem[];
+  maxCartItems?: number;
   onOpenCart: () => void;
 }
 
@@ -18,6 +19,7 @@ export interface BorrowerReserveCartBarProps {
  */
 export function BorrowerReserveCartBar({
   items,
+  maxCartItems = MAX_RESERVATION_CART_ITEMS,
   onOpenCart,
 }: BorrowerReserveCartBarProps) {
   if (items.length === 0) return null;
@@ -58,7 +60,7 @@ export function BorrowerReserveCartBar({
               <span className="inline-flex items-center gap-1 text-xs sm:text-sm font-bold text-white">
                 <ShoppingBag aria-hidden="true" className="w-4 h-4 text-[#F5B82E]" />
                 <span>
-                  Giỏ đặt mượn ({items.length}/{MAX_RESERVATION_CART_ITEMS} bản)
+                  Giỏ đặt mượn ({items.length}/{maxCartItems} bản)
                 </span>
               </span>
             </div>

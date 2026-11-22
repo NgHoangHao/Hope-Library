@@ -70,6 +70,7 @@ export interface UseBookManagementReturn {
   // Edit Modal
   isEditOpen: boolean;
   bookToEdit: BookEntity | null;
+  isLoadingEditDetail: boolean;
   isUpdating: boolean;
   openEditModal: (book: BookEntity) => void;
   closeEditModal: () => void;
@@ -124,6 +125,7 @@ export function useBookManagement({
   // Edit modal state
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [bookToEdit, setBookToEdit] = useState<BookEntity | null>(null);
+  const [isLoadingEditDetail, setIsLoadingEditDetail] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
   // Delete modal state
@@ -378,13 +380,26 @@ export function useBookManagement({
   );
 
   // Edit Modal Actions
-  const openEditModal = useCallback((book: BookEntity) => {
+  const openEditModal = useCallback(async (book: BookEntity) => {
     setBookToEdit(book);
     setIsEditOpen(true);
+    setIsLoadingEditDetail(true);
+
+    try {
+      const detail = await getBookByIdApi(book.id);
+      setBookToEdit((current) => (current && current.id === book.id ? detail : current));
+    } catch (err: unknown) {
+      if (isSessionExpiredError(err)) return;
+      const msg = err instanceof Error ? err.message : "Lỗi khi tải danh sách bản sao của sách";
+      setFeedback({ type: "error", message: msg });
+    } finally {
+      setIsLoadingEditDetail(false);
+    }
   }, []);
 
   const closeEditModal = useCallback(() => {
     setBookToEdit(null);
+    setIsLoadingEditDetail(false);
     setIsEditOpen(false);
   }, []);
 
@@ -407,6 +422,18 @@ export function useBookManagement({
         if (formData.status !== undefined) data.append("status", formData.status);
         if (formData.image) data.append("image", formData.image);
         if (formData.pdf) data.append("pdf", formData.pdf);
+
+        if (formData.copies !== undefined) {
+          const copiesPayload = formData.copies
+            .filter((c) => c.barcode && c.barcode.trim())
+            .map((c) => ({
+              ...(c.id ? { id: c.id } : {}),
+              barcode: c.barcode.trim(),
+              shelfLocation: c.shelfLocation?.trim() ?? "",
+              ...(c.status ? { status: c.status } : {}),
+            }));
+          data.append("copies", JSON.stringify(copiesPayload));
+        }
 
         const updated = await updateBookApi(id, data);
 
@@ -510,6 +537,7 @@ export function useBookManagement({
     handleCreateBook,
     isEditOpen,
     bookToEdit,
+    isLoadingEditDetail,
     isUpdating,
     openEditModal,
     closeEditModal,

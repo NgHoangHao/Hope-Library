@@ -92,7 +92,6 @@ describe('LoanService', () => {
       await expect(
         service.createLoan({
           userId: '',
-          dueDate: new Date(),
           items: [{ bookCopyId: 'copy-1' }],
         }),
       ).rejects.toThrow(AppException);
@@ -104,7 +103,6 @@ describe('LoanService', () => {
       await expect(
         service.createLoan({
           userId: 'invalid-user',
-          dueDate: new Date(Date.now() + 86400000),
           items: [{ bookCopyId: 'copy-1' }],
         }),
       ).rejects.toThrow(AppException);
@@ -116,7 +114,6 @@ describe('LoanService', () => {
       await expect(
         service.createLoan({
           userId: 'user-1',
-          dueDate: new Date(Date.now() + 86400000),
           items: [],
         }),
       ).rejects.toThrow(AppException);
@@ -128,7 +125,6 @@ describe('LoanService', () => {
       await expect(
         service.createLoan({
           userId: 'user-1',
-          dueDate: new Date(Date.now() + 86400000),
           items: [{ bookCopyId: 'copy-1' }, { bookCopyId: 'copy-1' }],
         }),
       ).rejects.toThrow(AppException);
@@ -143,13 +139,12 @@ describe('LoanService', () => {
       await expect(
         service.createLoan({
           userId: 'user-1',
-          dueDate: new Date(Date.now() + 86400000),
           items: [{ bookCopyId: 'copy-1' }],
         }),
       ).rejects.toThrow(AppException);
     });
 
-    it('nên tạo phiếu mượn thành công và lưu trong transaction', async () => {
+    it('nên tạo phiếu mượn thành công và tự động tính dueDate theo MAX_LOAN_DAYS', async () => {
       loanRepo.findUserById!.mockResolvedValue({ id: 'user-1' } as any);
       const mockCopy = {
         id: 'copy-1',
@@ -169,11 +164,15 @@ describe('LoanService', () => {
         return cb(mockManager as any);
       });
 
+      const baseLoanDate = new Date('2026-11-01T00:00:00.000Z');
+      const expectedDueDate = new Date(baseLoanDate);
+      expectedDueDate.setDate(expectedDueDate.getDate() + 14);
+
       const fullLoan = new Loan({
         id: 'loan-created-1',
         userId: 'user-1',
-        loanDate: new Date(),
-        dueDate: new Date(Date.now() + 86400000 * 7),
+        loanDate: baseLoanDate,
+        dueDate: expectedDueDate,
         status: LoanStatus.BORROWED,
         loanItems: [
           new LoanItem({
@@ -188,11 +187,19 @@ describe('LoanService', () => {
 
       const result = await service.createLoan({
         userId: 'user-1',
-        dueDate: new Date(Date.now() + 86400000 * 7),
+        loanDate: baseLoanDate,
         items: [{ bookCopyId: 'copy-1' }],
       });
 
       expect(loanRepo.runInTransaction).toHaveBeenCalled();
+      expect(mockManager.create).toHaveBeenCalledWith(
+        Loan,
+        expect.objectContaining({
+          userId: 'user-1',
+          loanDate: baseLoanDate,
+          dueDate: expectedDueDate,
+        }),
+      );
       expect(redisService.acquireLock).toHaveBeenCalledWith('lock:book-copy:copy-1', 15000);
       expect(redisService.releaseLock).toHaveBeenCalled();
       expect(mockManager.decrement).toHaveBeenCalled();
@@ -207,7 +214,6 @@ describe('LoanService', () => {
       await expect(
         service.createLoan({
           userId: 'user-1',
-          dueDate: new Date(Date.now() + 86400000 * 7),
           items: [{ bookCopyId: 'copy-1' }],
         }),
       ).rejects.toThrow(AppException);
@@ -601,37 +607,8 @@ describe('LoanService', () => {
       await expect(service.fulfillLoan('loan-1')).rejects.toThrow(AppException);
     });
 
-    it('nên ném lỗi nếu không truyền dueDate khi giao sách', async () => {
+    it('nên xác nhận giao sách thành công: chuyển PENDING -> BORROWED và tự động tính dueDate theo MAX_LOAN_DAYS', async () => {
       const futureDate = new Date(Date.now() + 24 * 3600 * 1000);
-      loanRepo.findById!.mockResolvedValue(
-        new Loan({
-          id: 'loan-1',
-          status: LoanStatus.PENDING,
-          pickupDeadline: futureDate,
-        }),
-      );
-
-      await expect(service.fulfillLoan('loan-1', {} as any)).rejects.toThrow(AppException);
-    });
-
-    it('nên ném lỗi nếu dueDate trước hoặc bằng thời điểm giao sách', async () => {
-      const futureDate = new Date(Date.now() + 24 * 3600 * 1000);
-      loanRepo.findById!.mockResolvedValue(
-        new Loan({
-          id: 'loan-1',
-          status: LoanStatus.PENDING,
-          pickupDeadline: futureDate,
-        }),
-      );
-
-      await expect(
-        service.fulfillLoan('loan-1', { dueDate: new Date(Date.now() - 3600 * 1000) }),
-      ).rejects.toThrow(AppException);
-    });
-
-    it('nên xác nhận giao sách thành công: chuyển PENDING -> BORROWED và tính hạn trả', async () => {
-      const futureDate = new Date(Date.now() + 24 * 3600 * 1000);
-      const targetDueDate = new Date(Date.now() + 14 * 24 * 3600 * 1000);
       const mockCopy = new BookCopy({
         id: 'copy-1',
         barcode: 'BC001',
@@ -662,12 +639,13 @@ describe('LoanService', () => {
       });
 
       const result = await service.fulfillLoan('loan-1', {
-        dueDate: targetDueDate,
         notes: 'Giao tại quầy',
       });
 
       expect(mockPendingLoan.status).toBe(LoanStatus.BORROWED);
-      expect(mockPendingLoan.dueDate).toEqual(targetDueDate);
+      const expectedDueDate = new Date(mockPendingLoan.loanDate);
+      expectedDueDate.setDate(expectedDueDate.getDate() + 14);
+      expect(mockPendingLoan.dueDate).toEqual(expectedDueDate);
       expect(mockCopy.status).toBe(BookCopyStatus.BORROWED);
       expect(redisService.del).toHaveBeenCalledWith('reservation:loan:loan-1');
       expect(result.status).toBe(LoanStatus.BORROWED);

@@ -23,7 +23,6 @@ export interface CreateLoanItemInput {
 export interface CreateLoanInput {
   userId: string;
   loanDate?: string;
-  dueDate: string;
   pickupDeadline?: string;
   status?: LoanStatus;
   notes?: string;
@@ -117,6 +116,20 @@ export interface PaginatedLoanData {
   unpaidFineLoansCount?: number;
 }
 
+export interface RemainingBorrowBooksData {
+  maxBorrowBooks: number;
+  borrowedBooksCount: number;
+  remainingBorrowBooks: number;
+}
+
+export interface ReservationExpirationHoursData {
+  reservationExpirationHours: number;
+}
+
+export interface MaxLoanDaysData {
+  maxLoanDays: number;
+}
+
 export interface MyLoansQueryParams {
   page?: number;
   size?: number;
@@ -145,7 +158,6 @@ export interface UpdateLoanInput {
 }
 
 export interface FulfillLoanInput {
-  dueDate: string;
   notes?: string;
   bookCopyIds?: string[];
   barcodes?: string[];

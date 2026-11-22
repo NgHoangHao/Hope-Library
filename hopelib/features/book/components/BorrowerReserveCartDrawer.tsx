@@ -26,6 +26,8 @@ import { useLayerDismissal, useFocusTrap } from "@/hooks";
 export interface BorrowerReserveCartDrawerProps {
   isOpen: boolean;
   items: ReservationCartItem[];
+  maxCartItems?: number;
+  reservationExpirationHours?: number;
   isSubmitting: boolean;
   error: string | null;
   successMessage: string | null;
@@ -38,6 +40,8 @@ export interface BorrowerReserveCartDrawerProps {
 export function BorrowerReserveCartDrawer({
   isOpen,
   items,
+  maxCartItems = MAX_RESERVATION_CART_ITEMS,
+  reservationExpirationHours = 48,
   isSubmitting,
   error,
   successMessage,
@@ -105,7 +109,7 @@ export function BorrowerReserveCartDrawer({
                 Giỏ đặt mượn sách
               </h2>
               <p className="text-xs text-stone-500">
-                {items.length}/{MAX_RESERVATION_CART_ITEMS} bản sách
+                {items.length}/{maxCartItems} bản sách
                 {uniqueBookCount > 1 ? ` · ${uniqueBookCount} đầu sách` : ""} trong 1 phiếu mượn
               </p>
             </div>
@@ -128,7 +132,7 @@ export function BorrowerReserveCartDrawer({
           <div className="px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/80 text-xs text-amber-900 flex items-start gap-2">
             <Clock aria-hidden="true" className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
             <span>
-              Tất cả sách trong giỏ sẽ được gộp thành <strong>1 phiếu đặt mượn duy nhất</strong> (giữ chỗ tối đa 48 giờ, tối đa {MAX_RESERVATION_CART_ITEMS} sách).
+              Tất cả sách trong giỏ sẽ được gộp thành <strong>1 phiếu đặt mượn duy nhất</strong> (giữ chỗ tối đa {reservationExpirationHours} giờ, tối đa {maxCartItems} sách).
             </span>
           </div>
 

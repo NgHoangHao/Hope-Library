@@ -22,7 +22,8 @@ function CreateLoanOrchestrator() {
     loanDate,
     setLoanDate,
     dueDate,
-    setDueDate,
+    maxLoanDays,
+    isLoadingMaxLoanDays,
     loanStatus,
     setLoanStatus,
     notes,
@@ -51,7 +52,6 @@ function CreateLoanOrchestrator() {
     handleSelectBookCopy,
     handleAddManualBookCopy,
     handleRemoveSelectedCopy,
-    handleQuickDueDate,
     handleSubmitCreateLoan,
     handleBackToUsers,
   } = useCreateLoanManagement({ canReadBooks });
@@ -102,6 +102,8 @@ function CreateLoanOrchestrator() {
           <CreateLoanFormPanel
             loanDate={loanDate}
             dueDate={dueDate}
+            maxLoanDays={maxLoanDays}
+            isLoadingMaxLoanDays={isLoadingMaxLoanDays}
             loanStatus={loanStatus}
             notes={notes}
             selectedItems={selectedItems}
@@ -109,8 +111,6 @@ function CreateLoanOrchestrator() {
             canCreateLoan={canCreateLoan}
             createdLoan={createdLoan}
             onLoanDateChange={setLoanDate}
-            onDueDateChange={setDueDate}
-            onQuickDueDate={handleQuickDueDate}
             onLoanStatusChange={setLoanStatus}
             onNotesChange={setNotes}
             onRemoveSelectedCopy={handleRemoveSelectedCopy}

@@ -263,19 +263,105 @@ export class BookService {
     let copiesData: Partial<BookCopy>[] | undefined = undefined;
 
     if (rawCopies !== undefined) {
+      if (!Array.isArray(rawCopies)) {
+        throw AppException.badRequest(
+          'Danh sách bản sao (copies) phải là một mảng hợp lệ',
+          { copies: rawCopies },
+          'INVALID_COPIES_FORMAT',
+        );
+      }
+
       copiesData = [];
       const barcodes: string[] = [];
+      const seenCopyIds = new Set<string>();
+      const existingCopies = existingBook.copies || [];
+      const existingCopyById = new Map(existingCopies.map((c) => [c.id, c]));
+      const allowedCopyStatuses = Object.values(BookCopyStatus);
 
       for (let i = 0; i < rawCopies.length; i++) {
         const copy = rawCopies[i];
-        if (!copy.barcode || !copy.barcode.trim()) {
+        const copyId = copy.id?.trim() || undefined;
+        let existingCopy: BookCopy | undefined = undefined;
+
+        if (copyId) {
+          if (seenCopyIds.has(copyId)) {
+            throw AppException.badRequest(
+              `Danh sách bản sao chứa mã định danh bản sao trùng lặp: '${copyId}'`,
+              { index: i, copyId },
+              'DUPLICATE_COPY_ID_IN_REQUEST',
+            );
+          }
+          seenCopyIds.add(copyId);
+
+          existingCopy = existingCopyById.get(copyId);
+          if (!existingCopy) {
+            throw AppException.badRequest(
+              `Không tìm thấy bản sao với ID '${copyId}' thuộc cuốn sách này`,
+              { index: i, copyId, bookId: id },
+              'BOOK_COPY_NOT_FOUND',
+            );
+          }
+        }
+
+        // Xử lý barcode: bắt buộc khi tạo mới; nếu cập nhật theo id mà không gửi barcode thì giữ nguyên barcode cũ
+        let resolvedBarcode: string;
+        if (copy.barcode !== undefined) {
+          if (!copy.barcode || !copy.barcode.trim()) {
+            throw AppException.badRequest(
+              `Bản sao thứ ${i + 1} thiếu mã barcode`,
+              { index: i, copy },
+              'BARCODE_REQUIRED',
+            );
+          }
+          resolvedBarcode = copy.barcode.trim();
+        } else if (existingCopy) {
+          resolvedBarcode = existingCopy.barcode;
+        } else {
           throw AppException.badRequest(
             `Bản sao thứ ${i + 1} thiếu mã barcode`,
             { index: i, copy },
             'BARCODE_REQUIRED',
           );
         }
-        barcodes.push(copy.barcode.trim());
+        barcodes.push(resolvedBarcode);
+
+        // Xử lý status: validate theo enum BookCopyStatus nếu có truyền
+        let resolvedStatus: BookCopyStatus | undefined = undefined;
+        if (copy.status !== undefined && copy.status !== null && (copy.status as unknown) !== '') {
+          const normalizedStatus = String(copy.status).trim().toUpperCase() as BookCopyStatus;
+          if (!allowedCopyStatuses.includes(normalizedStatus)) {
+            throw AppException.badRequest(
+              `Trạng thái bản sao thứ ${i + 1} không hợp lệ: '${copy.status}'`,
+              {
+                index: i,
+                status: copy.status,
+                allowedStatuses: allowedCopyStatuses,
+              },
+              'INVALID_BOOK_COPY_STATUS',
+            );
+          }
+          resolvedStatus = normalizedStatus;
+        }
+
+        // Xử lý location / shelfLocation: ưu tiên shelfLocation, fallback sang location
+        const rawLocation = copy.shelfLocation !== undefined ? copy.shelfLocation : copy.location;
+        let resolvedLocation: string | null | undefined = undefined;
+        if (rawLocation !== undefined) {
+          resolvedLocation = rawLocation === null ? null : rawLocation.trim() || null;
+        }
+
+        const copyPayload: Partial<BookCopy> = {
+          id: copyId,
+          barcode: resolvedBarcode,
+        };
+        if (resolvedLocation !== undefined) {
+          copyPayload.shelfLocation = resolvedLocation;
+        }
+        if (resolvedStatus !== undefined) {
+          copyPayload.status = resolvedStatus;
+        }
+
+        copiesData.push(copyPayload);
       }
 
       // Kiểm tra trùng lặp barcode ngay trong danh sách gửi lên
@@ -292,8 +378,8 @@ export class BookService {
 
       // Kiểm tra barcode đã tồn tại trong database (thuộc sách khác)
       if (barcodes.length > 0) {
-        const existingCopies = await this.bookRepo.findCopiesByBarcodes(barcodes);
-        const conflictCopies = existingCopies.filter((c) => c.bookId !== id);
+        const existingDbCopies = await this.bookRepo.findCopiesByBarcodes(barcodes);
+        const conflictCopies = existingDbCopies.filter((c) => c.bookId !== id);
         if (conflictCopies.length > 0) {
           const conflictBarcodes = conflictCopies.map((c) => c.barcode);
           throw AppException.conflict(
@@ -302,15 +388,6 @@ export class BookService {
             'BARCODE_ALREADY_EXISTS',
           );
         }
-      }
-
-      for (const copy of rawCopies) {
-        copiesData.push({
-          id: copy.id || undefined,
-          barcode: copy.barcode.trim(),
-          shelfLocation: copy.shelfLocation?.trim() || null,
-          status: copy.status ?? BookCopyStatus.AVAILABLE,
-        });
       }
     }
 

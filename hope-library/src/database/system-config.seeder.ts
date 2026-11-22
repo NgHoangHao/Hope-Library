@@ -22,7 +22,7 @@ export interface SystemConfigSeedItem {
 }
 
 /**
- * Danh sách 6 cấu hình hệ thống mặc định cho Hope Library
+ * Danh sách 7 cấu hình hệ thống mặc định cho Hope Library
  */
 export const DEFAULT_SYSTEM_CONFIGS: SystemConfigSeedItem[] = [
   {
@@ -73,6 +73,14 @@ export const DEFAULT_SYSTEM_CONFIGS: SystemConfigSeedItem[] = [
     description:
       'Thời gian gửi email nhắc nhở trước khi phiếu mượn quá hạn (ngày)',
     isPublic: false,
+  },
+  {
+    key: 'MAX_LOAN_DAYS',
+    value: '14',
+    valueType: SystemConfigValueType.NUMBER,
+    group: 'LOAN',
+    description: 'Hạn trả sách (ngày)',
+    isPublic: true,
   },
 ];
 

@@ -16,10 +16,20 @@ import {
 } from "lucide-react";
 import { requestLogout, getMeApi, AuthUser, usePermissions } from "@/features/auth";
 import { getAvatarUrl } from "@/features/profile";
+import {
+  BorrowerRemainingBooksCard,
+  useRemainingBorrowBooks,
+} from "@/features/loan";
 
 export function BorrowerHeader() {
   const pathname = usePathname();
   const { hasPermission } = usePermissions();
+  const {
+    maxBorrowBooks,
+    borrowedBooksCount,
+    remainingBorrowBooks,
+    isLoading: isLoadingQuota,
+  } = useRemainingBorrowBooks();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [imageError, setImageError] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -29,24 +39,34 @@ export function BorrowerHeader() {
 
     const loadUser = async () => {
       try {
+        const token = localStorage.getItem("hope_access_token");
         const stored = localStorage.getItem("hope_user");
+
+        if (!token) {
+          if (isMounted) {
+            setUser(null);
+            setImageError(false);
+          }
+          return;
+        }
+
         if (stored) {
           const parsed = JSON.parse(stored);
           if (isMounted) {
             setUser(parsed);
             setImageError(false);
           }
+        } else if (isMounted) {
+          setUser(null);
         }
 
         // Luôn fetch thông tin mới nhất từ GET /auth/me để cập nhật avatar và họ tên
-        const token = localStorage.getItem("hope_access_token");
-        if (token) {
-          const freshUser = await getMeApi(token);
-          if (freshUser && isMounted) {
-            setUser(freshUser);
-            setImageError(false);
-            localStorage.setItem("hope_user", JSON.stringify(freshUser));
-          }
+        const freshUser = await getMeApi(token);
+        // Kiểm tra lại token sau khi await để tránh ghi ngược hope_user sau khi đã logout
+        if (freshUser && isMounted && localStorage.getItem("hope_access_token")) {
+          setUser(freshUser);
+          setImageError(false);
+          localStorage.setItem("hope_user", JSON.stringify(freshUser));
         }
       } catch {
         // ignore
@@ -56,8 +76,11 @@ export function BorrowerHeader() {
     loadUser();
 
     const handleUserUpdated = (e: Event) => {
-      const customEvent = e as CustomEvent<AuthUser>;
-      if (customEvent.detail) {
+      const customEvent = e as CustomEvent<AuthUser | null | undefined>;
+      if (customEvent.detail === null) {
+        setUser(null);
+        setImageError(false);
+      } else if (customEvent.detail) {
         setUser(customEvent.detail);
         setImageError(false);
       } else {
@@ -161,6 +184,16 @@ export function BorrowerHeader() {
 
       {/* User Profile & Logout Action */}
       <div className="p-4 border-t border-black/5 space-y-2.5 bg-white/40">
+        {user && (
+          <BorrowerRemainingBooksCard
+            variant="sidebar"
+            maxBorrowBooks={maxBorrowBooks}
+            borrowedBooksCount={borrowedBooksCount}
+            remainingBorrowBooks={remainingBorrowBooks}
+            isLoading={isLoadingQuota}
+          />
+        )}
+
         <Link
           href="/profile"
           onClick={onNavigate}

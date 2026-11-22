@@ -292,6 +292,153 @@ describe('BookService', () => {
         }),
       ).rejects.toThrow(AppException);
     });
+
+    it('cho phép cập nhật status, barcode và location (alias của shelfLocation) cho bản sao đã tồn tại', async () => {
+      const existingBook = {
+        id: 'book-uuid',
+        title: 'Clean Code',
+        copies: [
+          {
+            id: 'copy-1',
+            bookId: 'book-uuid',
+            barcode: 'BC001',
+            shelfLocation: 'Kệ A1',
+            status: BookCopyStatus.AVAILABLE,
+          },
+        ],
+      };
+      bookRepo.findById!.mockResolvedValue(existingBook as any);
+      bookRepo.findCopiesByBarcodes!.mockResolvedValue([]);
+      bookRepo.updateWithCopies!.mockResolvedValue({
+        ...existingBook,
+        copies: [
+          {
+            id: 'copy-1',
+            bookId: 'book-uuid',
+            barcode: 'BC001-NEW',
+            shelfLocation: 'Kệ B2',
+            status: BookCopyStatus.MAINTENANCE,
+          },
+        ],
+        totalCopies: 1,
+        availableCopies: 0,
+      } as any);
+
+      const result = await service.updateBook('book-uuid', {
+        copies: [
+          {
+            id: 'copy-1',
+            barcode: 'BC001-NEW',
+            location: 'Kệ B2',
+            status: 'maintenance' as BookCopyStatus,
+          },
+        ],
+      });
+
+      expect(bookRepo.updateWithCopies).toHaveBeenCalledWith(
+        'book-uuid',
+        {},
+        [
+          {
+            id: 'copy-1',
+            barcode: 'BC001-NEW',
+            shelfLocation: 'Kệ B2',
+            status: BookCopyStatus.MAINTENANCE,
+          },
+        ],
+      );
+      expect(result.copies?.[0]).toMatchObject({
+        id: 'copy-1',
+        barcode: 'BC001-NEW',
+        shelfLocation: 'Kệ B2',
+        status: BookCopyStatus.MAINTENANCE,
+      });
+    });
+
+    it('giữ nguyên barcode, status, shelfLocation cũ khi cập nhật một phần bản sao theo id', async () => {
+      const existingBook = {
+        id: 'book-uuid',
+        title: 'Clean Code',
+        copies: [
+          {
+            id: 'copy-1',
+            bookId: 'book-uuid',
+            barcode: 'BC001',
+            shelfLocation: 'Kệ A1',
+            status: BookCopyStatus.AVAILABLE,
+          },
+        ],
+      };
+      bookRepo.findById!.mockResolvedValue(existingBook as any);
+      bookRepo.findCopiesByBarcodes!.mockResolvedValue([]);
+      bookRepo.updateWithCopies!.mockResolvedValue({
+        ...existingBook,
+        copies: [
+          {
+            id: 'copy-1',
+            bookId: 'book-uuid',
+            barcode: 'BC001',
+            shelfLocation: 'Kệ A1',
+            status: BookCopyStatus.DAMAGED,
+          },
+        ],
+        totalCopies: 1,
+        availableCopies: 0,
+      } as any);
+
+      await service.updateBook('book-uuid', {
+        copies: [{ id: 'copy-1', status: BookCopyStatus.DAMAGED }],
+      });
+
+      expect(bookRepo.updateWithCopies).toHaveBeenCalledWith(
+        'book-uuid',
+        {},
+        [
+          {
+            id: 'copy-1',
+            barcode: 'BC001',
+            status: BookCopyStatus.DAMAGED,
+          },
+        ],
+      );
+    });
+
+    it('ném AppException nếu trạng thái bản sao không hợp lệ', async () => {
+      const existingBook = {
+        id: 'book-uuid',
+        title: 'Clean Code',
+        copies: [
+          {
+            id: 'copy-1',
+            bookId: 'book-uuid',
+            barcode: 'BC001',
+            status: BookCopyStatus.AVAILABLE,
+          },
+        ],
+      };
+      bookRepo.findById!.mockResolvedValue(existingBook as any);
+
+      await expect(
+        service.updateBook('book-uuid', {
+          copies: [{ id: 'copy-1', status: 'INVALID_STATUS' as BookCopyStatus }],
+        }),
+      ).rejects.toThrow(AppException);
+    });
+
+    it('ném AppException nếu copy id không thuộc cuốn sách đang cập nhật', async () => {
+      const existingBook = {
+        id: 'book-uuid',
+        title: 'Clean Code',
+        copies: [],
+      };
+      bookRepo.findById!.mockResolvedValue(existingBook as any);
+
+      await expect(
+        service.updateBook('book-uuid', {
+          copies: [{ id: 'non-existent-copy', barcode: 'BC001' }],
+        }),
+      ).rejects.toThrow(AppException);
+    });
   });
 
   describe('deleteBook', () => {

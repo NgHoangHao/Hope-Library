@@ -37,14 +37,6 @@ export class CreateLoanDto {
   loanDate?: Date;
 
   @AutoMap(() => Date)
-  @ApiProperty({
-    description: 'Hạn trả sách (due date)',
-    example: '2026-11-28T07:00:00.000Z',
-    type: Date,
-  })
-  dueDate: Date;
-
-  @AutoMap(() => Date)
   @ApiPropertyOptional({
     description: 'Hạn chót đến quầy nhận sách (48h đối với PENDING)',
     example: '2026-11-16T07:00:00.000Z',
@@ -102,14 +94,6 @@ export class FulfillLoanDto {
     type: [String],
   })
   barcodes?: string[];
-
-
-  @ApiPropertyOptional({
-    description: 'Hạn trả sách cụ thể (nếu không dùng số ngày loanDurationDays)',
-    type: Date,
-    example: '2026-11-30T07:00:00.000Z',
-  })
-  dueDate?: Date;
 
   @ApiPropertyOptional({
     description: 'Ghi chú thêm từ thủ thư khi giao sách',
@@ -324,6 +308,62 @@ export class PaginatedLoanResponse {
   unpaidFineLoansCount?: number;
 
   constructor(partial?: Partial<PaginatedLoanResponse>) {
+    if (partial) {
+      Object.assign(this, partial);
+    }
+  }
+}
+
+export class RemainingBorrowBooksResponse {
+  @ApiProperty({
+    example: 3,
+    description: 'Số sách tối đa được phép mượn theo cấu hình hệ thống (MAX_BORROW_BOOKS)',
+  })
+  maxBorrowBooks: number;
+
+  @ApiProperty({
+    example: 1,
+    description: 'Số lượng sách (LoanItem) hiện đang ở trạng thái BORROWED của độc giả',
+  })
+  borrowedBooksCount: number;
+
+  @ApiProperty({
+    example: 2,
+    description: 'Số sách độc giả còn có thể mượn',
+  })
+  remainingBorrowBooks: number;
+
+  constructor(partial?: Partial<RemainingBorrowBooksResponse>) {
+    if (partial) {
+      Object.assign(this, partial);
+    }
+  }
+}
+
+export class ReservationExpirationHoursResponse {
+  @ApiProperty({
+    example: 48,
+    description:
+      'Số giờ tối đa giữ chỗ đặt sách theo cấu hình hệ thống (RESERVATION_EXPIRATION_HOURS)',
+  })
+  reservationExpirationHours: number;
+
+  constructor(partial?: Partial<ReservationExpirationHoursResponse>) {
+    if (partial) {
+      Object.assign(this, partial);
+    }
+  }
+}
+
+export class MaxLoanDaysResponse {
+  @ApiProperty({
+    example: 14,
+    description:
+      'Hạn trả sách mặc định (số ngày mượn tối đa) theo cấu hình hệ thống (MAX_LOAN_DAYS)',
+  })
+  maxLoanDays: number;
+
+  constructor(partial?: Partial<MaxLoanDaysResponse>) {
     if (partial) {
       Object.assign(this, partial);
     }

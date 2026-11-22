@@ -20,6 +20,7 @@ import {
   UpdateLoanInput,
 } from "../types/loan.types";
 import { FINE_STATUS_CONFIG } from "../utils/loanDisplay";
+import { useMaxLoanDays } from "./useMaxLoanDays";
 
 /**
  * Custom hook quản lý danh sách phiếu mượn (GET /loans, GET /loans/:id, PUT /loans/:id, DELETE /loans/:id)
@@ -32,6 +33,9 @@ export function useLoanManagement() {
   const canUpdate = hasPermission("LOAN_UPDATE");
   const canDelete = hasPermission("LOAN_DELETE");
   const canUpdateFine = hasPermission("FINE_UPDATE");
+
+  // Cấu hình hạn trả sách mặc định (MAX_LOAN_DAYS)
+  const { maxLoanDays, isLoading: isLoadingMaxLoanDays } = useMaxLoanDays();
 
   // Danh sách & phân trang
   const [loans, setLoans] = useState<LoanResponseData[]>([]);
@@ -465,6 +469,8 @@ export function useLoanManagement() {
     loanToFulfill,
     isLoadingFulfillDetail,
     isFulfilling,
+    maxLoanDays,
+    isLoadingMaxLoanDays,
     openFulfillModal,
     closeFulfillModal,
     handleFulfillLoan,

@@ -56,16 +56,41 @@ export function DashboardSidebar({ onCloseMobile, className }: DashboardSidebarP
     roles?: string[];
   } | null>(null);
 
-  // Khôi phục thông tin user đã lưu
+  // Khôi phục thông tin user đã lưu và đồng bộ khi thay đổi trạng thái đăng nhập
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("hope_user");
-      if (stored) {
-        setUser(JSON.parse(stored));
+    const syncUser = () => {
+      try {
+        const token = localStorage.getItem("hope_access_token");
+        const stored = localStorage.getItem("hope_user");
+        if (token && stored) {
+          setUser(JSON.parse(stored));
+        } else {
+          setUser(null);
+        }
+      } catch {
+        setUser(null);
       }
-    } catch {
-      // ignore
-    }
+    };
+
+    syncUser();
+
+    const handleUserUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail === null) {
+        setUser(null);
+      } else if (customEvent.detail) {
+        setUser(customEvent.detail);
+      } else {
+        syncUser();
+      }
+    };
+
+    window.addEventListener("storage", syncUser);
+    window.addEventListener("hope_user_updated", handleUserUpdated);
+    return () => {
+      window.removeEventListener("storage", syncUser);
+      window.removeEventListener("hope_user_updated", handleUserUpdated);
+    };
   }, []);
 
   // Gọi API lấy cấu trúc cây navigation từ backend dựa theo token role

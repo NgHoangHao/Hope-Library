@@ -26,9 +26,6 @@ import { LoanFineStatusList } from "./LoanFineStatusList";
 const LOAN_ITEM_STATUS_OPTIONS: LoanItemStatus[] = [
   "BORROWED",
   "RETURNED",
-  "OVERDUE",
-  "LOST",
-  "DAMAGED",
 ];
 
 interface EditableLoanItem {
@@ -100,7 +97,7 @@ export function LoanUpdateModal({
         title: item.title,
         url: item.url,
         barcode: item.bookCopy?.barcode || item.bookCopyId,
-        status: item.status,
+        status: item.status === "RETURNED" ? "RETURNED" : "BORROWED",
         returnedDate: toDateInputValue(item.returnedDate),
       }))
     );

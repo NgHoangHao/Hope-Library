@@ -15,6 +15,7 @@ import {
   LoanStatus,
 } from "../types/loan.types";
 import { getLoanUnpaidFineAmount } from "../utils/loanDisplay";
+import { notifyBorrowQuotaUpdated } from "./useRemainingBorrowBooks";
 
 /**
  * Custom hook quản lý danh sách phiếu mượn cá nhân của độc giả (/borrowing)
@@ -209,6 +210,7 @@ export function useBorrowerLoans() {
           setIsDetailOpen(false);
           setSelectedLoanDetail(null);
         }
+        notifyBorrowQuotaUpdated();
         await fetchMyLoans();
       } catch (error: unknown) {
         const message =

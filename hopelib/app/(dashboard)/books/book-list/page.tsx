@@ -56,6 +56,7 @@ export default function BookListPage() {
     handleCreateBook,
     isEditOpen,
     bookToEdit,
+    isLoadingEditDetail,
     isUpdating,
     openEditModal,
     closeEditModal,
@@ -152,6 +153,7 @@ export default function BookListPage() {
         isOpen={isEditOpen}
         mode="edit"
         book={bookToEdit}
+        isLoadingDetail={isLoadingEditDetail}
         authors={authors}
         categories={categories}
         isSubmitting={isUpdating}

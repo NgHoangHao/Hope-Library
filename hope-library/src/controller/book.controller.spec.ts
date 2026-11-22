@@ -180,12 +180,33 @@ describe('BookController', () => {
       );
     });
 
-    it('ném AppException nếu chuỗi JSON của copies không hợp lệ', async () => {
-      const body = {
-        copies: '{ invalid json }',
-      };
+    it('ném AppException nếu chuỗi JSON của copies không hợp lệ hoặc không phải mảng', async () => {
+      await expect(
+        controller.updateBook('book-1', { copies: '{ invalid json }' }),
+      ).rejects.toThrow(AppException);
 
-      await expect(controller.updateBook('book-1', body)).rejects.toThrow(AppException);
+      await expect(
+        controller.updateBook('book-1', { copies: JSON.stringify({ barcode: 'BC001' }) }),
+      ).rejects.toThrow(AppException);
+    });
+
+    it('truyền đầy đủ status, barcode và location của copies xuống service', async () => {
+      const mockResult = { id: 'book-1' };
+      bookService.updateBook!.mockResolvedValue(mockResult);
+
+      const copiesPayload = [
+        { id: 'copy-1', barcode: 'BC-NEW', location: 'Kệ C3', status: 'MAINTENANCE' },
+      ];
+      await controller.updateBook('book-1', { copies: JSON.stringify(copiesPayload) });
+
+      expect(bookService.updateBook).toHaveBeenCalledWith(
+        'book-1',
+        expect.objectContaining({
+          copies: copiesPayload,
+        }),
+        undefined,
+        undefined,
+      );
     });
   });
 
