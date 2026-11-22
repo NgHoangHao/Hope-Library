@@ -173,7 +173,7 @@ export function LoginForm({
             disabled={isLoading}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="haianhcute"
+            placeholder="username"
             className="w-full bg-[#FAF9F6] border border-neutral-200/90 rounded-xl px-4 py-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:border-[#F5B82E] focus:ring-2 focus:ring-[#F5B82E]/30 focus:bg-white transition-all disabled:opacity-60"
           />
         </div>
