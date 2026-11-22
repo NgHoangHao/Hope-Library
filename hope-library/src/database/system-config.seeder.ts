@@ -11,6 +11,8 @@ import {
   SystemConfig,
   SystemConfigValueType,
 } from '../model/system-config/system-config.entity.js';
+import { RedisService } from '../utils/redis.service.js';
+import { SystemConfigService } from '../service/system-config.service.js';
 
 export interface SystemConfigSeedItem {
   key: string;
@@ -88,7 +90,10 @@ export const DEFAULT_SYSTEM_CONFIGS: SystemConfigSeedItem[] = [
  * Hàm seed các bản ghi cấu hình hệ thống (SystemConfig).
  * Idempotent: chỉ thêm mới nếu key chưa tồn tại, không ghi đè giá trị quản trị viên đã chỉnh sửa.
  */
-export async function seedSystemConfig(connection: Connection): Promise<void> {
+export async function seedSystemConfig(
+  connection: Connection,
+  redisService?: RedisService,
+): Promise<void> {
   const configModel = connection.model<SystemConfig>(SystemConfig.name) as Model<SystemConfig>;
 
   console.log('--- Bắt đầu khởi tạo cấu hình hệ thống (System Configs) ---');
@@ -122,6 +127,13 @@ export async function seedSystemConfig(connection: Connection): Promise<void> {
     );
   }
 
+  if (redisService) {
+    await redisService.del(SystemConfigService.ALL_CONFIGS_CACHE_KEY);
+    console.log(
+      `[CACHE] Đã xóa cache Redis (${SystemConfigService.ALL_CONFIGS_CACHE_KEY})`,
+    );
+  }
+
   console.log(
     `--- Hoàn tất seeding System Configs: thêm mới ${createdCount}, bỏ qua ${skippedCount} ---`,
   );
@@ -139,6 +151,7 @@ export async function seedSystemConfig(connection: Connection): Promise<void> {
     }),
     MongooseModule.forFeature(mongooseModels),
   ],
+  providers: [RedisService],
 })
 class StandaloneSystemConfigSeedModule {}
 
@@ -149,7 +162,8 @@ async function bootstrap(): Promise<void> {
 
   try {
     const connection = app.get<Connection>(getConnectionToken());
-    await seedSystemConfig(connection);
+    const redisService = app.get(RedisService);
+    await seedSystemConfig(connection, redisService);
     console.log('Script system-config seeder hoàn thành thành công!');
   } catch (error) {
     console.error('Lỗi khi thực thi system-config seeder:', error);

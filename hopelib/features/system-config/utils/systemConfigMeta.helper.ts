@@ -23,6 +23,7 @@ const KEY_UNIT_MAP: Record<string, string> = {
   OTP_EXPIRATION_MINUTES: "phút",
   PASSWORD_MIN_LENGTH: "ký tự",
   MAX_BORROW_BOOKS: "cuốn",
+  MAX_LOAN_DAYS: "ngày",
   OVERDUE_FINE_PER_DAY: "VNĐ",
   OVERDUE_REMINDER_BEFORE_DAYS: "ngày",
   RESERVATION_EXPIRATION_HOURS: "giờ",

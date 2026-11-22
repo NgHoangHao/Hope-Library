@@ -12,6 +12,8 @@ import {
   SystemConfigValueType,
 } from '../model/system-config/system-config.entity.js';
 import { type SystemConfigSeedItem } from './system-config.seeder.js';
+import { RedisService } from '../utils/redis.service.js';
+import { SystemConfigService } from '../service/system-config.service.js';
 
 /**
  * Cấu hình hạn trả sách mặc định (tính bằng ngày, kiểu số nguyên)
@@ -31,6 +33,7 @@ export const MAX_LOAN_DAYS_CONFIG: SystemConfigSeedItem = {
  */
 export async function seedMaxLoanDaysConfig(
   connection: Connection,
+  redisService?: RedisService,
 ): Promise<void> {
   const configModel = connection.model<SystemConfig>(
     SystemConfig.name,
@@ -48,22 +51,32 @@ export async function seedMaxLoanDaysConfig(
     console.log(
       `[SKIP] Cấu hình "${MAX_LOAN_DAYS_CONFIG.key}" đã tồn tại (value: ${existing.value})`,
     );
-    return;
+  } else {
+    await configModel.create({
+      id: randomUUID(),
+      key: MAX_LOAN_DAYS_CONFIG.key,
+      value: MAX_LOAN_DAYS_CONFIG.value,
+      valueType: MAX_LOAN_DAYS_CONFIG.valueType,
+      group: MAX_LOAN_DAYS_CONFIG.group,
+      description: MAX_LOAN_DAYS_CONFIG.description,
+      isPublic: MAX_LOAN_DAYS_CONFIG.isPublic,
+    });
+
+    console.log(
+      `[OK] Đã tạo cấu hình "${MAX_LOAN_DAYS_CONFIG.key}" = ${MAX_LOAN_DAYS_CONFIG.value} (${MAX_LOAN_DAYS_CONFIG.valueType})`,
+    );
   }
 
-  await configModel.create({
-    id: randomUUID(),
-    key: MAX_LOAN_DAYS_CONFIG.key,
-    value: MAX_LOAN_DAYS_CONFIG.value,
-    valueType: MAX_LOAN_DAYS_CONFIG.valueType,
-    group: MAX_LOAN_DAYS_CONFIG.group,
-    description: MAX_LOAN_DAYS_CONFIG.description,
-    isPublic: MAX_LOAN_DAYS_CONFIG.isPublic,
-  });
+  if (redisService) {
+    await redisService.del(SystemConfigService.ALL_CONFIGS_CACHE_KEY);
+    await redisService.del(
+      `${SystemConfigService.CACHE_KEY_PREFIX}${MAX_LOAN_DAYS_CONFIG.key}`,
+    );
+    console.log(
+      `[CACHE] Đã xóa cache Redis (${SystemConfigService.ALL_CONFIGS_CACHE_KEY}, ${SystemConfigService.CACHE_KEY_PREFIX}${MAX_LOAN_DAYS_CONFIG.key})`,
+    );
+  }
 
-  console.log(
-    `[OK] Đã tạo cấu hình "${MAX_LOAN_DAYS_CONFIG.key}" = ${MAX_LOAN_DAYS_CONFIG.value} (${MAX_LOAN_DAYS_CONFIG.valueType})`,
-  );
   console.log('--- Hoàn tất seeding cấu hình hạn trả sách ---');
 }
 
@@ -79,6 +92,7 @@ export async function seedMaxLoanDaysConfig(
     }),
     MongooseModule.forFeature(mongooseModels),
   ],
+  providers: [RedisService],
 })
 class StandaloneMaxLoanDaysConfigSeedModule {}
 
@@ -89,7 +103,8 @@ async function bootstrap(): Promise<void> {
 
   try {
     const connection = app.get<Connection>(getConnectionToken());
-    await seedMaxLoanDaysConfig(connection);
+    const redisService = app.get(RedisService);
+    await seedMaxLoanDaysConfig(connection, redisService);
     console.log('Script max-loan-days-config seeder hoàn thành thành công!');
   } catch (error) {
     console.error('Lỗi khi thực thi max-loan-days-config seeder:', error);
