@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { BookEntity } from "../types/book.types";
 import { getBookCoverUrl } from "../utils/bookImage.helper";
+import { BookPdfSection } from "./BookPdfSection";
 import { cn } from "@/lib/utils";
 
 export interface BookManagementDetailModalProps {
@@ -198,6 +199,15 @@ export function BookManagementDetailModal({
                   </p>
                 </div>
               )}
+
+              {/* File PDF nội dung sách */}
+              <BookPdfSection
+                bookId={book.id}
+                bookTitle={book.title}
+                pdfUrl={book.pdfUrl}
+                variant="dashboard"
+                showEmptyState
+              />
 
               {/* Danh sách bản sao (Copies) */}
               <div className="space-y-3 pt-2 border-t border-stone-100">

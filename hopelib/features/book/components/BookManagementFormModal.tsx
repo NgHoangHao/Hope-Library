@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   X,
   Upload,
   Loader2,
   BookOpen,
   Image as ImageIcon,
+  FileText,
   Barcode,
   Plus,
   Trash2,
@@ -62,6 +63,9 @@ function BookFormContent({
   const [imagePreview, setImagePreview] = useState<string | null>(
     getBookCoverUrl(book?.bookUrl) || null
   );
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement | null>(null);
+  const existingPdfUrl = book?.pdfUrl || null;
 
   // Copies list for create mode (starts with 1 empty row)
   interface FormCopyItem {
@@ -93,6 +97,42 @@ function BookFormContent({
   const handleRemoveImage = () => {
     setImageFile(null);
     setImagePreview(null);
+  };
+
+  const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isPdfMime = file.type.toLowerCase() === "application/pdf";
+    const isPdfExt = file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdfMime && !isPdfExt) {
+      setValidationError("Chỉ cho phép tải lên file định dạng PDF (.pdf).");
+      e.target.value = "";
+      return;
+    }
+
+    const maxSizeBytes = 10 * 1024 * 1024;
+    if (file.size > maxSizeBytes) {
+      setValidationError("Dung lượng file PDF không được vượt quá 10 MB.");
+      e.target.value = "";
+      return;
+    }
+
+    setValidationError(null);
+    setPdfFile(file);
+  };
+
+  const handleRemovePdf = () => {
+    setPdfFile(null);
+    if (pdfInputRef.current) {
+      pdfInputRef.current.value = "";
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
   const handleAddCopy = () => {
@@ -222,6 +262,7 @@ function BookFormContent({
       description: description.trim() || undefined,
       status: mode === "edit" ? status : undefined,
       image: imageFile,
+      pdf: pdfFile,
       copies: validCopies,
     });
   };
@@ -440,6 +481,70 @@ function BookFormContent({
               <p className="text-[11px] text-stone-400">
                 Định dạng hỗ trợ: JPG, PNG (tối đa 5MB)
               </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Upload File PDF nội dung sách */}
+        <div>
+          <label className="block text-xs font-semibold text-stone-700 mb-1.5">
+            File PDF nội dung sách (Tùy chọn)
+          </label>
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-xl bg-rose-50/70 border border-rose-200/80 shrink-0 flex items-center justify-center">
+              <FileText
+                className={`w-7 h-7 ${
+                  pdfFile || existingPdfUrl ? "text-rose-600" : "text-stone-300"
+                }`}
+              />
+            </div>
+
+            <div className="flex-1 min-w-0 space-y-1.5">
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                id="book-pdf-upload"
+                onChange={handlePdfChange}
+                disabled={isSubmitting}
+                className="hidden"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <label
+                  htmlFor="book-pdf-upload"
+                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 cursor-pointer transition-colors"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>
+                    {pdfFile || existingPdfUrl ? "Thay đổi file PDF" : "Tải file PDF lên"}
+                  </span>
+                </label>
+
+                {pdfFile && (
+                  <button
+                    type="button"
+                    onClick={handleRemovePdf}
+                    disabled={isSubmitting}
+                    className="text-[11px] font-medium text-rose-600 hover:underline cursor-pointer"
+                  >
+                    Bỏ chọn file
+                  </button>
+                )}
+              </div>
+
+              {pdfFile ? (
+                <p className="text-xs font-medium text-emerald-700 truncate">
+                  Đã chọn: {pdfFile.name} ({formatFileSize(pdfFile.size)})
+                </p>
+              ) : existingPdfUrl ? (
+                <p className="text-xs text-stone-600">
+                  Sách hiện đã có file PDF đính kèm (tải file mới lên nếu muốn thay thế).
+                </p>
+              ) : (
+                <p className="text-[11px] text-stone-400">
+                  Định dạng hỗ trợ: PDF (.pdf, tối đa 10MB)
+                </p>
+              )}
             </div>
           </div>
         </div>

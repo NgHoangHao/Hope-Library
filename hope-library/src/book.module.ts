@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { MulterModule } from '@nestjs/platform-express';
 import { Book, BookSchema } from './model/book/book.entity.js';
 import { BookCopy, BookCopySchema } from './model/book-copy/book-copy.entity.js';
 import { Author, AuthorSchema } from './model/author/author.entity.js';
@@ -10,11 +12,19 @@ import { Fine, FineSchema } from './model/fine/fine.entity.js';
 import { BookRepository } from './repository/book.repository.js';
 import { BookService } from './service/book.service.js';
 import { BookController } from './controller/book.controller.js';
-import { FileStorageService } from './utils/file-storage.service.js';
+import { FileStorageService, getMaxFileSizeBytes } from './utils/file-storage.service.js';
 import { BookMapper } from './mapper/index.js';
 
 @Module({
   imports: [
+    MulterModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        limits: {
+          fileSize: getMaxFileSizeBytes(configService),
+        },
+      }),
+    }),
     MongooseModule.forFeature([
       { name: Book.name, schema: BookSchema },
       { name: BookCopy.name, schema: BookCopySchema },

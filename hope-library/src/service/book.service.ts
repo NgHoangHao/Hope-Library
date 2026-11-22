@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { BookRepository } from '../repository/book.repository.js';
-import { FileStorageService, SaveImageResult } from '../utils/file-storage.service.js';
+import {
+  FileStorageService,
+  SaveImageResult,
+  SavePdfResult,
+} from '../utils/file-storage.service.js';
 import { Book, BookStatus } from '../model/book/book.entity.js';
 import { BookCopy, BookCopyStatus } from '../model/book-copy/book-copy.entity.js';
 import { LoanItemStatus } from '../model/loan-item/loan-item.entity.js';
@@ -26,11 +30,12 @@ export class BookService {
   ) {}
 
   /**
-   * Thêm mới sách, chuyển đổi ảnh thành URL và lưu trữ bản sao
+   * Thêm mới sách, chuyển đổi ảnh bìa & file PDF thành URL và lưu trữ bản sao
    */
   async createBook(
     dto: CreateBookDto,
     imageFile?: Express.Multer.File,
+    pdfFile?: Express.Multer.File,
   ): Promise<BookDetailResponse> {
     // 1. Validate tiêu đề sách
     if (!dto.title || !dto.title.trim()) {
@@ -119,13 +124,28 @@ export class BookService {
       }
     }
 
-    // 5. Xử lý file ảnh bìa (chỉ cho phép png, jpg/jpeg) và convert thành url
+    // 5. Xử lý file ảnh bìa (png, jpg/jpeg, webp) và file PDF nội dung sách
     const fileToUpload = imageFile || dto.image;
+    const pdfToUpload = pdfFile || dto.pdf;
     let uploadResult: SaveImageResult | null = null;
+    let pdfUploadResult: SavePdfResult | null = null;
 
     if (fileToUpload) {
-      // Sẽ ném ngoại lệ nếu file không đúng định dạng png/jpg
+      // Sẽ ném ngoại lệ nếu file không đúng định dạng ảnh hợp lệ
       uploadResult = await this.fileStorageService.saveImage(fileToUpload, 'books');
+    }
+
+    if (pdfToUpload) {
+      try {
+        pdfUploadResult = await this.fileStorageService.savePdf(pdfToUpload, 'books/pdfs');
+      } catch (error) {
+        if (uploadResult?.filePath) {
+          await this.fileStorageService.deleteFile(uploadResult.filePath).catch((err) => {
+            this.logger.error(`Không thể xóa file ảnh sau khi upload PDF thất bại: ${err.message}`);
+          });
+        }
+        throw error;
+      }
     }
 
     // 6. Lưu vào cơ sở dữ liệu (Transaction)
@@ -140,16 +160,22 @@ export class BookService {
         edition: dto.edition?.trim() || null,
         description: dto.description?.trim() || null,
         bookUrl: uploadResult?.fileUrl || null,
+        pdfUrl: pdfUploadResult?.fileUrl || null,
         status: BookStatus.ACTIVE,
       };
 
       const savedBook = await this.bookRepo.createWithCopies(bookData, copiesData);
       return this.bookMapper.toDetailResponse(savedBook);
     } catch (error) {
-      // Nếu có lỗi khi lưu DB, rollback xóa file ảnh vừa tải lên để tránh file rác
+      // Nếu có lỗi khi lưu DB, rollback xóa file ảnh và file PDF vừa tải lên để tránh file rác
       if (uploadResult?.filePath) {
         await this.fileStorageService.deleteFile(uploadResult.filePath).catch((err) => {
           this.logger.error(`Không thể xóa file ảnh sau rollback: ${err.message}`);
+        });
+      }
+      if (pdfUploadResult?.filePath) {
+        await this.fileStorageService.deleteFile(pdfUploadResult.filePath, 'raw').catch((err) => {
+          this.logger.error(`Không thể xóa file PDF sau rollback: ${err.message}`);
         });
       }
 
@@ -167,12 +193,13 @@ export class BookService {
   }
 
   /**
-   * Cập nhật sách cùng danh sách bản sao (BookCopy), nếu không truyền ảnh mới hoặc null thì giữ nguyên ảnh cũ
+   * Cập nhật sách cùng danh sách bản sao (BookCopy), nếu không truyền ảnh/PDF mới hoặc null thì giữ nguyên file cũ
    */
   async updateBook(
     id: string,
     dto: UpdateBookDto,
     imageFile?: Express.Multer.File,
+    pdfFile?: Express.Multer.File,
   ): Promise<BookDetailResponse> {
     // 1. Kiểm tra sách tồn tại
     const existingBook = await this.bookRepo.findById(id);
@@ -287,12 +314,27 @@ export class BookService {
       }
     }
 
-    // 6. Xử lý file ảnh bìa: nếu file ảnh nhận vào null/undefined thì không thay đổi ảnh
+    // 6. Xử lý file ảnh bìa và file PDF: nếu null/undefined thì giữ nguyên file cũ
     const fileToUpload = imageFile ?? dto.image;
+    const pdfToUpload = pdfFile ?? dto.pdf;
     let uploadResult: SaveImageResult | null = null;
+    let pdfUploadResult: SavePdfResult | null = null;
 
     if (fileToUpload) {
       uploadResult = await this.fileStorageService.saveImage(fileToUpload, 'books');
+    }
+
+    if (pdfToUpload) {
+      try {
+        pdfUploadResult = await this.fileStorageService.savePdf(pdfToUpload, 'books/pdfs');
+      } catch (error) {
+        if (uploadResult?.filePath) {
+          await this.fileStorageService.deleteFile(uploadResult.filePath).catch((err) => {
+            this.logger.error(`Không thể xóa file ảnh sau khi upload PDF thất bại: ${err.message}`);
+          });
+        }
+        throw error;
+      }
     }
 
     // 7. Cập nhật vào cơ sở dữ liệu (Transaction)
@@ -330,10 +372,14 @@ export class BookService {
       if (uploadResult?.fileUrl) {
         bookData.bookUrl = uploadResult.fileUrl;
       }
+      // Nếu có upload file PDF mới thì mới cập nhật pdfUrl; nếu null/undefined thì không thay đổi
+      if (pdfUploadResult?.fileUrl) {
+        bookData.pdfUrl = pdfUploadResult.fileUrl;
+      }
 
       const updatedBook = await this.bookRepo.updateWithCopies(id, bookData, copiesData);
 
-      // Nếu có ảnh mới và sách cũ đã có ảnh khác, xóa ảnh cũ trên đĩa
+      // Nếu có ảnh mới và sách cũ đã có ảnh khác, xóa ảnh cũ
       if (
         uploadResult?.fileUrl &&
         existingBook.bookUrl &&
@@ -346,14 +392,34 @@ export class BookService {
         }
       }
 
+      // Nếu có file PDF mới và sách cũ đã có PDF khác, xóa PDF cũ
+      if (
+        pdfUploadResult?.fileUrl &&
+        existingBook.pdfUrl &&
+        existingBook.pdfUrl !== pdfUploadResult.fileUrl
+      ) {
+        try {
+          await this.fileStorageService.deleteFile(existingBook.pdfUrl, 'raw');
+        } catch (err: any) {
+          this.logger.warn(`Không thể xóa file PDF cũ sau khi cập nhật: ${err?.message}`);
+        }
+      }
+
       return this.bookMapper.toDetailResponse(updatedBook);
     } catch (error) {
-      // Nếu có lỗi khi lưu DB, rollback xóa file ảnh vừa tải lên để tránh file rác
+      // Nếu có lỗi khi lưu DB, rollback xóa file ảnh/PDF vừa tải lên để tránh file rác
       if (uploadResult?.filePath) {
         try {
           await this.fileStorageService.deleteFile(uploadResult.filePath);
         } catch (err: any) {
           this.logger.error(`Không thể xóa file ảnh sau rollback: ${err?.message}`);
+        }
+      }
+      if (pdfUploadResult?.filePath) {
+        try {
+          await this.fileStorageService.deleteFile(pdfUploadResult.filePath, 'raw');
+        } catch (err: any) {
+          this.logger.error(`Không thể xóa file PDF sau rollback: ${err?.message}`);
         }
       }
 
@@ -383,6 +449,60 @@ export class BookService {
       );
     }
     return this.bookMapper.toDetailResponse(book);
+  }
+
+  /**
+   * Lấy nội dung file PDF của sách theo ID để người dùng xem trực tiếp
+   */
+  async getBookPdf(id: string): Promise<{ buffer: Buffer; fileName: string; pdfUrl: string }> {
+    const book = await this.bookRepo.findById(id);
+    if (!book) {
+      throw AppException.notFound(
+        `Không tìm thấy sách với ID: ${id}`,
+        { id },
+        'BOOK_NOT_FOUND',
+      );
+    }
+
+    if (!book.pdfUrl) {
+      throw AppException.notFound(
+        'Sách này chưa có file PDF nội dung',
+        { id },
+        'BOOK_PDF_NOT_FOUND',
+      );
+    }
+
+    try {
+      const response = await fetch(book.pdfUrl);
+      if (!response.ok) {
+        throw AppException.internal(
+          'Không thể tải file PDF nội dung sách từ hệ thống lưu trữ',
+          { id, status: response.status },
+          'BOOK_PDF_FETCH_FAILED',
+        );
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const safeTitle = (book.title || 'book')
+        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+        .trim() || 'book';
+
+      return {
+        buffer: Buffer.from(arrayBuffer),
+        fileName: `${safeTitle}.pdf`,
+        pdfUrl: book.pdfUrl,
+      };
+    } catch (error) {
+      if (error instanceof AppException) {
+        throw error;
+      }
+      this.logger.error(`Lỗi khi tải file PDF của sách ${id}: ${(error as Error).message}`);
+      throw AppException.internal(
+        'Không thể tải file PDF nội dung sách từ hệ thống lưu trữ',
+        { id, error: (error as Error).message },
+        'BOOK_PDF_FETCH_FAILED',
+      );
+    }
   }
 
   /**
@@ -460,10 +580,15 @@ export class BookService {
       );
     }
 
-    // 3. Xóa file ảnh trên ổ đĩa nếu có sau khi đã xóa thành công trong CSDL
+    // 3. Xóa file ảnh bìa và file PDF trên lưu trữ nếu có sau khi đã xóa thành công trong CSDL
     if (book.bookUrl) {
       await this.fileStorageService.deleteFile(book.bookUrl).catch((err) => {
         this.logger.warn(`Không thể xóa file ảnh của sách: ${err.message}`);
+      });
+    }
+    if (book.pdfUrl) {
+      await this.fileStorageService.deleteFile(book.pdfUrl, 'raw').catch((err) => {
+        this.logger.warn(`Không thể xóa file PDF của sách: ${err.message}`);
       });
     }
   }

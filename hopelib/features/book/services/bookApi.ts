@@ -3,7 +3,14 @@ import {
   PaginatedBookData,
   BookQueryParams,
 } from "../types/book.types";
-import { apiFetch } from "@/features/auth";
+import {
+  apiFetch,
+  refreshAccessToken,
+  dispatchSessionExpired,
+  SessionExpiredError,
+} from "@/features/auth";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 /**
  * Gọi API GET /books: Lấy danh sách sách có phân trang, tìm kiếm và lọc
@@ -163,5 +170,69 @@ export async function deleteBookApi(
       throw error;
     }
     throw new Error("Không thể kết nối đến máy chủ để xóa sách");
+  }
+}
+
+/**
+ * Gọi API GET /books/:id/pdf: Tải nội dung file PDF (Blob) kèm Bearer token để hiển thị inline
+ */
+export async function getBookPdfBlobApi(
+  id: string,
+  token?: string,
+  retryCount = 0
+): Promise<Blob> {
+  const url = `${API_BASE_URL}/books/${encodeURIComponent(id)}/pdf`;
+  const headers: Record<string, string> = {};
+
+  let authToken = token;
+  if (!authToken && typeof window !== "undefined") {
+    authToken = localStorage.getItem("hope_access_token") || undefined;
+  }
+  if (authToken) {
+    headers["Authorization"] = `Bearer ${authToken.trim()}`;
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers,
+      credentials: "include",
+    });
+
+    if (response.status === 401) {
+      if (retryCount === 0) {
+        const newAccessToken = await refreshAccessToken();
+        return getBookPdfBlobApi(id, newAccessToken, retryCount + 1);
+      }
+      dispatchSessionExpired();
+      throw new SessionExpiredError();
+    }
+
+    if (!response.ok) {
+      let errorMsg = `Không thể tải file PDF (mã ${response.status})`;
+      try {
+        const text = await response.text();
+        if (text) {
+          const parsed = JSON.parse(text);
+          if (parsed?.message) {
+            errorMsg = parsed.message;
+          }
+        }
+      } catch {
+        // Bỏ qua lỗi parse JSON nếu response không phải JSON
+      }
+      throw new Error(errorMsg);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return new Blob([arrayBuffer], { type: "application/pdf" });
+  } catch (error: unknown) {
+    if (error instanceof SessionExpiredError) {
+      throw error;
+    }
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error("Không thể kết nối đến máy chủ để tải file PDF");
   }
 }

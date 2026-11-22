@@ -80,6 +80,13 @@ export class CreateBookDto {
   image?: Express.Multer.File;
 
   @ApiPropertyOptional({
+    description: 'File PDF nội dung của sách (chỉ cho phép định dạng PDF, tối đa 10 MB)',
+    type: 'string',
+    format: 'binary',
+  })
+  pdf?: Express.Multer.File;
+
+  @ApiPropertyOptional({
     description: 'Danh sách các bản sao sách (copies) bao gồm barcode và vị trí kệ shelfLocation',
     type: () => [CreateBookCopyDto],
   })
@@ -161,6 +168,13 @@ export class UpdateBookDto {
   image?: Express.Multer.File;
 
   @ApiPropertyOptional({
+    description: 'File PDF nội dung của sách (chỉ cho phép định dạng PDF, tối đa 10 MB). Nếu là null hoặc không gửi thì không thay đổi file PDF.',
+    type: 'string',
+    format: 'binary',
+  })
+  pdf?: Express.Multer.File;
+
+  @ApiPropertyOptional({
     description: 'Danh sách các bản sao sách (copies) bao gồm barcode, vị trí kệ shelfLocation và status',
     type: () => [UpdateBookCopyDto],
   })
@@ -217,6 +231,10 @@ export class BookResponse {
   @AutoMap(() => String)
   @ApiPropertyOptional({ description: 'Đường dẫn URL ảnh bìa sách' })
   bookUrl?: string | null;
+
+  @AutoMap(() => String)
+  @ApiPropertyOptional({ description: 'Đường dẫn URL file PDF nội dung sách' })
+  pdfUrl?: string | null;
 
   @AutoMap(() => String)
   @ApiProperty({ enum: BookStatus, description: 'Trạng thái sách' })
@@ -291,6 +309,10 @@ export class BookDetailResponse {
   @AutoMap(() => String)
   @ApiPropertyOptional({ description: 'Đường dẫn URL ảnh bìa sách' })
   bookUrl?: string | null;
+
+  @AutoMap(() => String)
+  @ApiPropertyOptional({ description: 'Đường dẫn URL file PDF nội dung sách' })
+  pdfUrl?: string | null;
 
   @AutoMap(() => String)
   @ApiProperty({ enum: BookStatus, description: 'Trạng thái sách' })

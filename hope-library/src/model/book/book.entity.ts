@@ -63,6 +63,10 @@ export class Book extends BaseEntity {
   bookUrl?: string | null;
 
   @AutoMap(() => String)
+  @Prop({ type: String, default: null })
+  pdfUrl?: string | null;
+
+  @AutoMap(() => String)
   @Prop({ type: String, enum: BookStatus, default: BookStatus.ACTIVE })
   status: BookStatus;
 

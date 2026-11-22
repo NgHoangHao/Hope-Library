@@ -64,6 +64,7 @@ export interface BookEntity {
   totalCopies: number;
   availableCopies: number;
   bookUrl?: string | null;
+  pdfUrl?: string | null;
   status: BookStatus;
   author?: {
     id: string;
@@ -106,6 +107,7 @@ export interface BookFormData {
   description?: string;
   status?: BookStatus;
   image?: File | null;
+  pdf?: File | null;
   copies?: BookCopyInput[];
   initialBarcode?: string;
   initialShelfLocation?: string;

@@ -24,6 +24,7 @@ import {
   MAX_RESERVATION_CART_ITEMS,
 } from "../types/book.types";
 import { getBookCoverUrl } from "../utils/bookImage.helper";
+import { BookPdfSection } from "./BookPdfSection";
 import { useLayerDismissal, useFocusTrap } from "@/hooks";
 
 export interface BorrowerBookDetailModalProps {
@@ -318,6 +319,14 @@ export function BorrowerBookDetailModal({
                 </div>
               </div>
             </div>
+
+            {/* File PDF nội dung sách (nếu có) */}
+            <BookPdfSection
+              bookId={book.id}
+              bookTitle={book.title}
+              pdfUrl={book.pdfUrl}
+              variant="borrower"
+            />
 
             {/* Copies list (Chọn bản sao vật lý để đặt mượn) */}
             {book.copies && book.copies.length > 0 && (

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { StreamableFile } from '@nestjs/common';
 import { BookController } from './book.controller.js';
 import { BookService } from '../service/book.service.js';
 import { AppException, ApiResponse } from '../common/index.js';
@@ -12,12 +13,85 @@ describe('BookController', () => {
       createBook: vi.fn(),
       getAllBooks: vi.fn(),
       getBookById: vi.fn(),
+      getBookPdf: vi.fn(),
       updateBook: vi.fn(),
       deleteBook: vi.fn(),
       getTopReturnedBooks: vi.fn(),
     };
 
     controller = new BookController(bookService as unknown as BookService);
+  });
+
+  describe('createBook', () => {
+    it('thêm sách thành công kèm file ảnh bìa và file PDF nội dung sách', async () => {
+      const mockResult = {
+        id: 'book-1',
+        title: 'Clean Code',
+        bookUrl: 'https://res.cloudinary.com/demo/image/upload/v1/hope-library/books/cover.png',
+        pdfUrl: 'https://res.cloudinary.com/demo/raw/upload/v1/hope-library/books/pdfs/book.pdf',
+      };
+      bookService.createBook!.mockResolvedValue(mockResult);
+
+      const mockImage = {
+        originalname: 'cover.png',
+        mimetype: 'image/png',
+        buffer: Buffer.from('img'),
+      } as Express.Multer.File;
+
+      const mockPdf = {
+        originalname: 'clean-code.pdf',
+        mimetype: 'application/pdf',
+        buffer: Buffer.from('%PDF-1.4 content'),
+      } as Express.Multer.File;
+
+      const response = await controller.createBook(
+        { title: 'Clean Code' },
+        { image: [mockImage], pdf: [mockPdf] },
+      );
+
+      expect(bookService.createBook).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Clean Code',
+          image: mockImage,
+          pdf: mockPdf,
+        }),
+        mockImage,
+        mockPdf,
+      );
+      expect(response).toBeInstanceOf(ApiResponse);
+      expect(response.response).toEqual(mockResult);
+    });
+  });
+
+  describe('getBookById & viewBookPdf', () => {
+    it('trả về chi tiết sách bao gồm pdfUrl', async () => {
+      const mockDetail = {
+        id: 'book-1',
+        title: 'Clean Code',
+        pdfUrl: 'https://res.cloudinary.com/demo/raw/upload/v1/hope-library/books/pdfs/book.pdf',
+      };
+      bookService.getBookById!.mockResolvedValue(mockDetail);
+
+      const response = await controller.getBookById('book-1');
+
+      expect(bookService.getBookById).toHaveBeenCalledWith('book-1');
+      expect(response.response).toEqual(mockDetail);
+    });
+
+    it('trả về StreamableFile PDF inline cho người dùng xem trực tiếp', async () => {
+      bookService.getBookPdf!.mockResolvedValue({
+        buffer: Buffer.from('%PDF-1.4'),
+        fileName: 'Clean Code.pdf',
+        pdfUrl: 'https://res.cloudinary.com/demo/raw/upload/v1/hope-library/books/pdfs/book.pdf',
+      });
+
+      const streamable = await controller.viewBookPdf('book-1');
+
+      expect(bookService.getBookPdf).toHaveBeenCalledWith('book-1');
+      expect(streamable).toBeInstanceOf(StreamableFile);
+      expect(streamable.getHeaders().type).toBe('application/pdf');
+      expect(streamable.getHeaders().disposition).toContain('inline');
+    });
   });
 
   describe('updateBook', () => {
@@ -41,7 +115,7 @@ describe('BookController', () => {
         copies: JSON.stringify([{ barcode: 'BC001', shelfLocation: 'A1' }]),
       };
 
-      const response = await controller.updateBook('book-1', body, mockFile);
+      const response = await controller.updateBook('book-1', body, { image: [mockFile] });
 
       expect(bookService.updateBook).toHaveBeenCalledWith(
         'book-1',
@@ -49,8 +123,10 @@ describe('BookController', () => {
           title: 'Updated Title',
           copies: [{ barcode: 'BC001', shelfLocation: 'A1' }],
           image: mockFile,
+          pdf: undefined,
         }),
         mockFile,
+        undefined,
       );
       expect(response).toBeInstanceOf(ApiResponse);
       expect(response.response).toEqual(mockResult);
@@ -76,7 +152,9 @@ describe('BookController', () => {
         expect.objectContaining({
           title: 'Updated Title Only',
           image: undefined,
+          pdf: undefined,
         }),
+        undefined,
         undefined,
       );
       expect(response.response).toEqual(mockResult);
@@ -97,6 +175,7 @@ describe('BookController', () => {
         expect.objectContaining({
           copies: [{ barcode: 'BC002' }],
         }),
+        undefined,
         undefined,
       );
     });

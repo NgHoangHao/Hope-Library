@@ -333,6 +333,7 @@ export function useBookManagement({
         if (formData.edition?.trim()) data.append("edition", formData.edition.trim());
         if (formData.description?.trim()) data.append("description", formData.description.trim());
         if (formData.image) data.append("image", formData.image);
+        if (formData.pdf) data.append("pdf", formData.pdf);
 
         // Book copies handling (support multiple copies or single initial copy)
         if (formData.copies && formData.copies.length > 0) {
@@ -405,6 +406,7 @@ export function useBookManagement({
         if (formData.description !== undefined) data.append("description", formData.description.trim());
         if (formData.status !== undefined) data.append("status", formData.status);
         if (formData.image) data.append("image", formData.image);
+        if (formData.pdf) data.append("pdf", formData.pdf);
 
         const updated = await updateBookApi(id, data);
 

@@ -34,7 +34,9 @@ describe('BookService', () => {
 
     fileStorageService = {
       validateImageFile: vi.fn(),
+      validatePdfFile: vi.fn(),
       saveImage: vi.fn(),
+      savePdf: vi.fn(),
       deleteFile: vi.fn(),
     };
 
@@ -118,6 +120,46 @@ describe('BookService', () => {
     expect(result.bookUrl).toBe('/uploads/books/book-cover.png');
     expect(result.totalCopies).toBe(1);
     expect(result.copies).toHaveLength(1);
+  });
+
+  it('nên tạo sách thành công kèm file PDF và trả về pdfUrl trong detail', async () => {
+    bookRepo.findByIsbn!.mockResolvedValue(null);
+    fileStorageService.savePdf!.mockResolvedValue({
+      fileName: 'clean-code.pdf',
+      filePath: 'hope-library/books/pdfs/clean-code.pdf',
+      fileUrl: 'https://res.cloudinary.com/demo/raw/upload/v1/hope-library/books/pdfs/clean-code.pdf',
+    });
+
+    bookRepo.createWithCopies!.mockResolvedValue(
+      new Book({
+        id: 'book-pdf-uuid',
+        title: 'Clean Code',
+        pdfUrl: 'https://res.cloudinary.com/demo/raw/upload/v1/hope-library/books/pdfs/clean-code.pdf',
+        totalCopies: 0,
+        availableCopies: 0,
+        status: BookStatus.ACTIVE,
+        copies: [],
+      }),
+    );
+
+    const mockPdf = {
+      originalname: 'clean-code.pdf',
+      mimetype: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4 content'),
+    } as Express.Multer.File;
+
+    const result = await service.createBook({ title: 'Clean Code' }, undefined, mockPdf);
+
+    expect(fileStorageService.savePdf).toHaveBeenCalledWith(mockPdf, 'books/pdfs');
+    expect(bookRepo.createWithCopies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pdfUrl: 'https://res.cloudinary.com/demo/raw/upload/v1/hope-library/books/pdfs/clean-code.pdf',
+      }),
+      [],
+    );
+    expect(result.pdfUrl).toBe(
+      'https://res.cloudinary.com/demo/raw/upload/v1/hope-library/books/pdfs/clean-code.pdf',
+    );
   });
 
   describe('updateBook', () => {
