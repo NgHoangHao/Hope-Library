@@ -22,28 +22,8 @@ function formatDate(dateStr?: string | null): string {
   });
 }
 
-function getLoanStatusDisplay(status: string, dueDate?: string) {
-  const normalized = status?.toUpperCase();
-
-  if (normalized === "BORROWED" && dueDate) {
-    const due = new Date(dueDate);
-    const now = new Date();
-    const diffMs = due.getTime() - now.getTime();
-    const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
-
-    if (diffMs < 0) {
-      return {
-        label: "Quá hạn",
-        style: "bg-rose-50 text-rose-700 border-rose-200/70",
-      };
-    }
-    if (diffMs <= twoDaysMs) {
-      return {
-        label: "Sắp đến hạn",
-        style: "bg-amber-50 text-amber-800 border-amber-200/80",
-      };
-    }
-  }
+function getLoanStatusDisplay(status: string) {
+  const normalized = status?.trim().toUpperCase();
 
   switch (normalized) {
     case "BORROWED":
@@ -156,10 +136,7 @@ export function DashboardRecentLoans({
               </tr>
             ) : (
               loans.map((loan) => {
-                const statusInfo = getLoanStatusDisplay(
-                  loan.status,
-                  loan.dueDate
-                );
+                const statusInfo = getLoanStatusDisplay(loan.status);
                 return (
                   <tr
                     key={loan.id}

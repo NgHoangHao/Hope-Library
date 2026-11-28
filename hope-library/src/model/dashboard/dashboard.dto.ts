@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { LoanStatus } from '../loan/loan.entity.js';
 
 export class DashboardStatsDto {
   @ApiProperty({ description: 'Tổng số bản sao sách (BookCopy) trong thư viện', example: 2480 })
@@ -84,8 +85,12 @@ export class DashboardRecentLoanDto {
   @ApiProperty({ description: 'Hạn trả sách' })
   dueDate: Date;
 
-  @ApiProperty({ description: 'Trạng thái phiếu mượn', example: 'BORROWED' })
-  status: string;
+  @ApiProperty({
+    enum: LoanStatus,
+    description: 'Trạng thái phiếu mượn từ DB (LoanStatus)',
+    example: LoanStatus.BORROWED,
+  })
+  status: LoanStatus;
 }
 
 export class DashboardOverviewResponse {

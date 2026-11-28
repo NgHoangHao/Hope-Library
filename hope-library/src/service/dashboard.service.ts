@@ -77,7 +77,7 @@ export class DashboardService {
       this.dashboardRepository.countBorrowedBookCopies(),
       this.dashboardRepository.countTotalUsers(),
       this.dashboardRepository.countUsersCreatedSince(startOfCurrentWeek),
-      this.dashboardRepository.countOverdueLoans(now),
+      this.dashboardRepository.countOverdueLoans(),
       this.dashboardRepository.findLoansInDateRange(
         startOfLastWeek,
         startOfCurrentWeek,

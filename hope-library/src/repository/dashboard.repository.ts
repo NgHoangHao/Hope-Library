@@ -73,16 +73,11 @@ export class DashboardRepository {
   }
 
   /**
-   * Đếm số phiếu mượn đang quá hạn
+   * Đếm số phiếu mượn đang quá hạn theo đúng trạng thái OVERDUE trong DB
    */
-  async countOverdueLoans(now: Date = new Date()): Promise<number> {
+  async countOverdueLoans(): Promise<number> {
     return this.loanModel
-      .countDocuments({
-        $or: [
-          { status: LoanStatus.OVERDUE },
-          { status: LoanStatus.BORROWED, dueDate: { $lt: now } },
-        ],
-      })
+      .countDocuments({ status: LoanStatus.OVERDUE })
       .exec();
   }
 
